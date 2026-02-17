@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>PLC Diagnostic</title>
+<style>
+body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: #f8fafc; margin: 10px; display: flex; flex-direction: column; align-items: center; }
+.main-container { width: 100%; max-width: 800px; display: flex; flex-direction: column; gap: 15px; }
+.card { background: #1e293b; border-radius: 12px; padding: 15px; border: 1px solid #334155; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+h3 { color: #38bdf8; margin: 0 0 10px 0; font-size: 1.1em; border-bottom: 1px solid #334155; padding-bottom: 5px; display: flex; justify-content: space-between; }
+.bits-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 6px; }
+.bit-box { font-size: 10px; padding: 6px 2px; text-align: center; border-radius: 6px; background: #334155; color: #94a3b8; cursor: help; transition: 0.2s; }
+.bit-box.active { background: #22c55e; color: white; box-shadow: 0 0 8px rgba(34, 197, 94, 0.3); }
+.reg-table { width: 100%; border-collapse: collapse; font-family: 'Cascadia Code', monospace; font-size: 13px; }
+.reg-table tr:hover { background: #2d3e5a !important; cursor: help; }
+.reg-table td { padding: 8px; border-bottom: 1px solid #334155; }
+.reg-idx { color: #64748b; font-weight: bold; width: 60px; }
+.reg-name { color: #94a3b8; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 250px; }
+.reg-val { color: #fbbf24; text-align: right; font-weight: bold; font-size: 1.1em; }
+#status-bar { width: 100%; max-width: 800px; padding: 10px; border-radius: 8px; margin-bottom: 10px; text-align: center; font-weight: bold; background: #065f46; color: #34d399; transition: 0.5s; }
+.scroll { max-height: 600px;  overflow-y: auto;  border: 1px solid #334155;  border-radius: 4px; }
+.reg-table td { padding: 4px 8px;  border-bottom: 1px solid #334155; }
+.reg-table td:nth-child(4) {    max-width: 220px;    white-space: normal;    color: #94a3b8;}
+.reg-val {    min-width: 80px;}
+/* Анимация для изменившихся значений */
+@keyframes flash-green {
+    0% { background: rgba(34, 197, 94, 0.4); }
+    100% { background: transparent; }
+}
+.changed-flash {
+    animation: flash-green 2s ease-out;
+    border-radius: 4px;
+}
+/* Красивый стиль для расшифрованных строк */
+.string-hint {
+    color: #86efac;
+    font-weight: 600;
+    background: rgba(134, 239, 172, 0.05);
+    padding: 2px 8px;
+    border-radius: 10px;
+    display: inline-block;
+}
+
+/* Скроллбар потоньше для красоты */
+.scroll::-webkit-scrollbar { width: 6px; }
+.scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+.changed-flash { animation: flash-yellow 1.5s ease; }
+@keyframes flash-yellow {
+    0% { background: rgba(251, 191, 36, 0.5); color: #fff; }
+    100% { background: transparent; }
+}
+.string-hint { 
+    color: #86efac; 
+    font-size: 11px; 
+    border-left: 2px solid #22c55e; 
+    padding-left: 8px; 
+    font-style: italic; 
+}
+</style>
+</head>
+<body>
+<div id="status-bar">Связь устанавливается...</div>
+<div id="plc_time" style="padding-block: 1em;"></div>
+    <button id="update-button" style="background-color: #22c55e; color: white; padding: 10px 20px; border-radius: 6px; cursor: pointer;">Обновить данные</button>
+<!-- X -->
+<div class="main-container">
+        <div class="card">
+            <h3>Входы <span>(X)</span></h3>
+            <div id="rx-container" class="bits-grid"></div></div>
+<!-- Y -->
+<div class="card">
+            <h3>Выходы <span>(Y)</span></h3>
+            <div id="ry-container" class="bits-grid"></div></div>
+<!-- C -->
+<div class="card">
+            <h3>Счетчики<span>(C)</span></h3>
+            <div class="scroll"><table id="rc-table" class="reg-table"></table></div></div>
+<!-- L -->
+<div class="card">
+            <h3>Ошибки/Предупреждения <span>(L)</span></h3>
+            <div  style=" max-height: max-content;"><table id="rl-table" class="reg-table"></table></div></div>
+<!-- M -->
+<div class="card">
+    <h3>Промежуточные маркеры <span>(M)</span></h3>
+    <div class="scroll"><table id="rm-table" class="reg-table"></table></div></div>
+<!-- D -->
+<div class="card">
+            <h3>Регистры данных <span>(D)</span></h3>
+            <div class="scroll"><table id="rd-table" class="reg-table"></table></div></div>
+<!-- SD -->
+<div class="card">
+            <h3>Регистры системных данных <span>(SD)</span></h3>
+            <div class="scroll"><table id="rsd-table" class="reg-table"></table></div>
+        </div>
+</div>
+<script>
+var _sys_time = "";
+var _prev_values = {}; // Хранилище для отслеживания изменений
+
+// Функция для красивой подсветки изменений
+function getValClass(id, newVal) {
+    const key = id;
+    const oldVal = _prev_values[key];
+    _prev_values[key] = newVal;
+    if (oldVal !== undefined && oldVal !== newVal) {
+        return 'reg-val changed-flash'; // Класс для анимации
+    }
+    return 'reg-val';
+}
+
+async function update() {
+    try {
+        _sys_time = "";
+        const res = await fetch('/plc_get');
+        const data = await res.json();
+        const plc = data.PLC_01;
+        if (!plc) throw new Error();
+
+        const tags = plc.tags;
+        
+        // Визуализация битовых цепочек (X, Y)
+        renderBits('rx-container', filterTags(tags, "RX"), 'X');
+        renderBits('ry-container', filterTags(tags, "RY"), 'Y');
+
+        // Таблицы
+        fillTable('rc-table', filterTags(tags, "RC"), 'C');
+        fillTable('rl-table', filterTags(tags, "RL"), 'L');
+        fillTable('rm-table', filterTags(tags, "RM"), 'M');
+        fillTable('rd-table', filterTags(tags, "RD"), 'D');
+        fillTableRSD(filterTags(tags, "SD"));
+
+        const status = document.getElementById('status-bar');
+        status.style.background = "#065f46";
+        status.innerText = "ОБНОВЛЕНО: " + new Date().toLocaleTimeString();
+        document.getElementById('plc_time').textContent = _sys_time;
+    } catch(e) { 
+        document.getElementById('status-bar').style.background = "#451a1a";
+        document.getElementById('status-bar').innerText = "НЕТ СВЯЗИ С ПЛК";
+    }
+}
+
+function renderBits(containerId, tags, prefix) {
+    document.getElementById(containerId).innerHTML = tags.map(item => {
+        let oct = prefix + toOctal(item.addr);
+        return `<div class="bit-box ${item.val ? 'active' : ''}" title="${item.name || oct}">
+                    <b>${item.name ? item.name.substring(0, 10) + '..' : oct}</b><br>
+                    <span style="opacity:0.6">${oct}</span>
+                </div>`;
+    }).join('');
+}
+
+function fillTable(id, arr, prefix) {
+    const table = document.getElementById(id);
+    table.innerHTML = '';
+
+    for (let i = 0; i < arr.length; i++) {
+        const item = arr[i];
+        if (!item.name && item.val === 0) continue;
+
+        let extraText = '';
+        let skipCount = 0;
+
+        // Логика авто-склейки строк для D и L регистров
+        if ((prefix === 'D' || prefix === 'L') && item.val > 0) {
+            let fullString = "";
+            let j = i;
+            while (j < arr.length && arr[j].val > 0 && (j === i || !arr[j].name)) {
+                const lo = arr[j].val & 0xFF;
+                const hi = (arr[j].val >> 8) & 0xFF;
+                const part = new TextDecoder('windows-1251').decode(new Uint8Array([lo, hi]));
+                const clean = part.replace(/[\x00-\x1F\x7F]/g, '');
+                if (clean.length === 0) break;
+                fullString += clean;
+                j++;
+                if (j - i > 12) break; // Ограничение длины строки
+            }
+            if (fullString.trim().length > 1) {
+                extraText = `<div class="string-hint">"${fullString.trim()}"</div>`;
+                skipCount = (j - i) - 1;
+            }
+        }
+
+        const valClass = getValClass(prefix + item.addr, item.val);
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td class="reg-idx">${prefix}${item.addr}</td>
+            <td class="reg-name">${item.name || '---'}</td>
+            <td class="${valClass}">${item.val}</td>
+            <td>${extraText}</td>
+        `;
+        table.appendChild(row);
+        if (skipCount > 0) i += skipCount;
+    }
+}
+
+// Вспомогательные функции
+function toOctal(n) { return n.toString(8); }
+function filterTags(tags, type) { return tags.filter(t => t.type === type); }
+document.getElementById('update-button').onclick = update;
+setInterval(update, 5000); // Автообновление раз в 3 сек
+update();
+    </script>
+</body>
+</html>
