@@ -1,225 +1,676 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Ввод пароля</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-        }
-        .active {color: green;}
-        .inactive {color: orange;}
-        .error {color: red;}
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-        th {
-            cursor: pointer;
-            background-color: #f2f2f2;
-        }
-.tooltip {
-    position: absolute;
-    top: 3em;
-    left: 15em;
-    transform: translateX(-50%);
-    background-color: rgba(0, 0, 0, 0.7);
-    color: white;
-    padding: 10px;
-    border-radius: 5px;
-    opacity: 1;
-    transition: opacity 1.2s ease-in-out;
-    pointer-events: none;
+from pymodbus.client.sync import ModbusTcpClient
+import pymodbus
+print("pymodbus version:", pymodbus.__version__)  
+
+from flask import Flask, render_template, jsonify, request
+import pandas as pd
+import threading
+import webbrowser
+from datetime import datetime
+from sqlalchemy import create_engine
+import socket
+import logging
+import warnings
+from urllib.parse import quote_plus
+from collections import defaultdict
+from datetime import datetime, timedelta
+warnings.filterwarnings("ignore", category=UserWarning, message="pandas only supports SQLAlchemy")
+# Словари с ПРАВИЛЬНЫМИ десятичными индексами (пересчитано из Octal)
+TAGS = {
+'SD': {
+        0:   'Код ошибки самодиагностики',
+        200: 'CPU switch status (0: RUN, 1: STOP)',
+        203: 'CPU Status (b0: RUN, b2: STOP, b3: PAUSE)',
+        210: 'Clock Year',
+        211: 'Clock Month',
+        212: 'Clock Day',
+        213: 'Clock Hour',
+        214: 'Clock Minute',
+        215: 'Clock Second',
+        216: 'Clock Day of Week',
+        519: 'Initial scan time (µs)',
+        523: 'Minimum scan time (µs)',
+        524: 'Maximum scan time (ms)',
+        525: 'Maximum scan time (µs)',
+        600: 'Memory Card Installation / Enable',
+        604: 'SD memory card usage status',
+        606: 'SD card total capacity (low word)',
+        610: 'SD card free space (low word)',
+    },
+'RX': {  # Входящие сигналы (Input Signals)
+        0:  'X0	    Резерв',
+        1:  'X1	    Режим работы Выбран Контроллер/Реле',
+        2:  'X2	    Резерв',
+        3:  'X3	    Резерв',
+        4:  'X4	    BQ21 набор шага и баз ',
+        5:  'X5	    BQ22 набор шага и баз ',
+        6:  'X6	    BQ37 Задняя тележка перед остановом ',
+        7:  'X7	    BQ38 Задняятележка перед остановом ',
+        8:  'X10	BQ15 открыт останов 1',
+        9:  'X11	BQ16 закрыт останов 1',
+        10: 'X12	BQ17 открыт останов 2',
+        11: 'X13	BQ18 закрыт останов 2',
+        12: 'X14	BQ9 передняя тележка перед остановом',
+        13: 'X15	BQ10 передняя тележка перед остановом',
+        14: 'X16	BQ35 закрытие останова',
+        15: 'X17	BQ36 закрытие останова ',
+        16: 'X20	Ручной режим останов ОТКРЫТЬ',
+        17: 'X21	Ручной режим останов ЗАКРЫТЬ',
+        18: 'X22	ЦЕПЬ',
+        19: 'X23	Резерв',
+        20: 'X24	NEW_BQ21 набор шага и баз ',
+        21: 'X25	NEW_BQ22 набор шага и баз ',
+        22: 'X26	Резерв',
+        23: 'X27	Резерв',
+        24: 'X30	останов ПОЗ-1 Закладка',
+        25: 'X31	останов ПОЗ-3 Мост',
+        26: 'X32	останов ПОЗ-5 Кардан',
+        27: 'X33	останов ПОЗ-7 Переворот',
+        28: 'X34	останов ПОЗ-10 Двигатель',
+        29: 'X35	останов ПОЗ-14 Радиатор',
+        30: 'X36	останов Натяжитель цепи (подвал)',
+        31: 'X37	останов ПОЗ-26 Кабина',
+        32: 'X40	останов ПОЗ-29 Надрамник',
+        33: 'X41	останов ПОЗ-23 Заправка',
+        34: 'X42	останов ПОЗ-32 Спуск'
+    },
+'RY': {  # Выходящие сигналы (Output Signals)
+        0: 'Шток останова 1: Открыть',
+        1: 'Шток останова 1: Закрыть',
+        2: 'Шток останова 2: Открыть',
+        3: 'Шток останова 2: Закрыть',
+        5: 'Сигнал АВАРИИ из КОНТРОЛЛЕРА'
+    },
+'RC': {  # Счётчики (Counters)
+        30:  'время стоп закладка',
+        31:  'время стоп мост',
+        32:  'время стоп кардан',
+        33:  'время стоп переварот',
+        34:  'время стоп двигатель',
+        35:  'время стоп радиатор',
+        36:  'время стоп подвал',
+        37:  'время стоп кабина',
+        40:  'время стоп надрамник',
+        41:  'время стоп заправка',
+        42:  'время стоп спуск',
+        44:  'время стоп от контроллера',
+        45:  'время движения цепи',
+        46:  'время стоп цепи',
+        50:  'время работы контроллера',
+        101: 'энерго независимый счетчик 1 X4/X5',
+        102: 'энерго независимый счетчик основной',
+        103: 'энерго независимый счетчик 2 X24/X25',
+        104: 'энерго независимый счетчик при движении в -',
+        110: 'энерго независимый счетчик машин'
+    },
+'RL': {  # Логическое оповещение (Logical Alerts)
+        0:	'база  не выбрана',
+        1:	'сработка датчика при остановленной цепи',
+        2:	'Авария X24/X25',
+        4:	'Неопределенное состояние остановов',
+        11:	'сигналы S9 и S10 не равны',
+        12:	'сигналы S37 и S38 не равны',
+        13:	'Ошибка!!! Нет передней тележки в останове (S9/S10)',
+        14:	'Ручн. реж. Цепь STOP',
+        16:	'Ошибка!!! Нет задней тележки в останове (S37/S38)',
+        22:	'сигналы S21 и S22 не равны',
+        23:	'сигналы S35 и S36 не равны',
+        39:	'Предупреждение!!! Нет Задания!!! ',
+        41:	'Переключитесь на работу от останова 2 Останов 1 не исправен!!!',
+        42:	'Переключитесь на работу от останова 1 Останов 2 не исправен!!!',
+        43:	'Авария датчиков S9,S10,S37,S38    Тележка в останове не определена!',
+        44:	'S35 неисправен',
+        45:	'S36 неисправен',
+        50:	'Несоответствие  y0=1 s15=0',
+        51:	'Несоответствие  y0=0 s15=1',
+        52:	'Несоответствие  y1=1 s15=0',
+        53:	'Несоответствие  y1=0 s15=1',
+        54:	'Несоответствие  y2=1 s15=0',
+        55:	'Несоответствие  y2=0 s15=1',
+        56:	'Несоответствие  y3=1 s15=0',
+        57:	'Несоответствие  y3=0 s15=1',
+    },
+'RD': {  # Регистры данных //
+0:     'Сообщение "?" ',
+1:     'Установка числа звеньев c пульта',
+2:     'D2:=D714+7;',
+3:     'D3:=D714+1;',
+4:     'D4:=C102;',   
+5:     'D5.0 запись на sd карту флаг Err/ok',
+6:     'D6.0 чтение с sd карты флаг Err/ok',
+9:     'Экран рецептов часть новая запись поле база',
+10:    'Экран рецептов часть выбрано поле база',
+20:    'Сообщения на экран 16 слов 1-ое',
+21:    'Сообщения на экран 16 слов 2-ое',
+22:    'Сообщения на экран 16 слов 3-ое',
+23:    'Сообщения на экран 16 слов 4-ое',
+24:    'Сообщения на экран 16 слов 5-ое',
+25:    'Сообщения на экран 16 слов 6-ое',
+26:    'Сообщения на экран 16 слов 7-ое',
+27:    'Сообщения на экран 16 слов 8-ое',
+28:    'Сообщения на экран 16 слов 9-ое',
+29:    'Сообщения на экран 16 слов 10-ое',
+30:    'Сообщения на экран 16 слов 11-ое',
+31:    'Сообщения на экран 16 слов 12-ое',
+32:    'Сообщения на экран 16 слов 13-ое',
+33:    'Сообщения на экран 16 слов 14-ое',
+34:    'Сообщения на экран 16 слов 15-ое',
+35:    'Сообщения на экран 16 слов 16-ое',
+40:    'Сообщения. Соответствует записям в GT Designer',
+100:   'зажечь надпись 1-36 2-41 3-требование выбрать 36/41',
+110:   'Переменная для хранения числа звеньев задней тележки',
+120:   '"Текущее значение счетчика звеньев',
+130:   'тек.знач.(1-4) режим D130:=C103;',
+140:   'тек.знач.5-ый режим D140:=C101;',
+200:   'коментарий закладчика главный экран',
+210:   '2-ая строчка для выбора базы на панели',
+220:   '3-ая строчка для выбора базы на панели',
+230:   '4-ая строчка для выбора базы на панели',
+240:   '5-ая строчка для выбора базы на панели',
+250:   '6-ая строчка для выбора базы на панели',
+260:   '7-ая строчка для выбора базы на панели',
+270:   '8-ая строчка для выбора базы на панели',
+280:   '9-ая строчка для выбора базы на панели',
+290:   '10-ая строчка для выбора базы на панели',
+300:   'Для ручного ввода списка с панели подвала 1 строка база -51-',
+303:   'Для ручного ввода списка с панели подвала 2 строка база -29-',
+306:   'Для ручного ввода списка с панели подвала 3 строка база -37-',
+309:   'Для ручного ввода списка с панели подвала 4 строка база -35-',
+312:   'Для ручного ввода списка с панели подвала 5 строка база -65-',
+315:   'Для ручного ввода списка с панели подвала 6 строка база -66-',
+318:   'Для ручного ввода списка с панели подвала 7 строка база -03-',
+321:   'Для ручного ввода списка с панели подвала 8 строка база -18-',
+324:   'Для ручного ввода списка с панели подвала 9 строка база -20-',
+327:   'Для ручного ввода списка с панели подвала 10 строка база -21-',
+330:   'Для ручного ввода списка с панели подвала 11 строка база -22-',
+410:   'Поле 1 пульта выбора БАЗ',
+714:   'количество звеньев для открытия останова',
+900:   'условие сброса счета задается с панели',
+1000:  'Режим работы счетчика',
+1010:  'Вывод сообщения на экран при откате',
+4000:  'количество звеньев для перезапуска  счета',
+
+    },
+'RM': {  # Регистры промежуточных состояний (1 битные МАРКЕРА)
+        0:  'ЗАНЕСЕНИЯ С АРХИВА В СТРОЧКУ GTSOFT',
+        1:  'для сброса m99 и m101',
+        2:  'кнопка установить "Да" на пульту',
+        3:  'очистка данных задания',
+        4:  'цепь не движется',
+        5:  'Кнопка на пульту откл/вкл слежение(была)',
+        6:  'кнопка на пульту квитирование',
+        7:  'Сработает после ввода данных на понели d9',
+        8:  'Сработает после ввода данных на понели d3030',
+        9:  'тригер для экрана ЛОГ',
+        10: 'откат сброс',
+        11: 'Кнопка на пульту выбор остановов',
+        12: 'Кнопка 1-Ручной 0-Авто',
+        13: 'для истории ',
+        14: 'кнопка на экране "Изменить число звеньев"',
+        15: 'обновить данные на экране',
+        16: 'сообщение на экран "задняя база сформирована"',
+        17: 'для пуска цепи из ручного режима',
+        18: 'для очистки сообщения цепь остановлена',
+        19: 'выбран останов в ручном режиме 1/2',
+        20: 'У0 в автомате',
+        21: 'У1 в автомате',
+        22: 'У2 в автомате',
+        23: 'У3 в автомате',
+        24: 'для скрытия и отоброжения кнопки"СЧИТАТЬ С АРХИВА"',
+        25: 'У0 в ручном',
+        26: 'У1 в ручном',
+        27: 'У2 в ручном',
+        28: 'У3 в ручном',
+        29: '0-надпись ПЕРЕДНЯЯ 1-надпись ЗАДНЯЯ 4 позиция',
+        30: '1-отобразить 0-крыть 4 позиция',
+        31: '0-надпись ПЕРЕДНЯЯ 1-надпись ЗАДНЯЯ 3 позиция',
+        32: '1-отобразить 0-крыть 3 позиция',
+        33: '0-надпись ПЕРЕДНЯЯ 1-надпись ЗАДНЯЯ 2 позиция',
+        34: '1-отобразить 0-крыть 2 позиция',
+        35: '0-надпись ПЕРЕДНЯЯ 1-надпись ЗАДНЯЯ 1 позиция',
+        36: '1-отобразить 0-крыть 1 позиция',
+        37: 'Движение тележки 4 задняя',
+        38: 'Движение тележки 3 задняя',
+        39: 'Движение тележки 2',
+        40: 'ГДЕ-ТО АВАРИЯ',
+        41: 'Движение тележки 1',
+        42: 'Движение тележки 4 передняя',
+        43: 'Движение тележки 3 передняя',
+        44: 'стереть d700',
+        45: 'стоп/пуск узла контроля остановов',
+        46: 'стоп/пуск узла счета баз',
+        50: 'Не соответствие выход = вход в течении 2 сек',
+        99: 'начало передняя база',
+        100:'сдвиг',
+        101:'начало задняя база',
+        102:'Сместить задание из списка на 1 позицию',
+        109:'S37 задняя тележка в останове',
+        110:'S38 задняя тележка в останове',
+        111:'Тригер для формирования истории баз',
+        115:'S15 останов 1 открыт',
+        116:'S16 останов 1 закрыт',
+        117:'S17 останов 2 открыт',
+        118:'S18 останов 2 закрыт',
+        121:'S21 счетчик звеньев',
+        122:'S22 счетчик звеньев',
+        123:'Счетчик с учетом дребезга',
+        124:'Счетчик с учетом дребезга',
+        125:'Счетчик с учетом дребезга',
+        135:'S35 БВК на закрытие останова',
+        136:'S36 БВК на закрытие останова',
+        137:'S9 пернедняя тележка в останове',
+        138:'S10 пернедняя тележка в останове',
+        199:'Кнопка сброса ошибок на пульту',
+        200:'Неверное положение останова',
+        201:'Нет передней тележки',
+        202:'число звеньев 33 а передней базы нет',
+        203:'число звеньев = задней базе а ее нет',
+        204:'выключить цепь',
+        205:'нет задней тележки',
+        300:'переключатель выбор схемы контр/реле',
+        500:'память Y0 открыть',
+        501:'память Y1 закрыть',
+        502:'память Y2 открыть',
+        503:'память Y3 закрыть',
+        519:'Выбранный останов 1-1 0-2',
+        524:'Выбранный датчик щетчика звеньев с панели ',
+        525:'Выбранный датчик задняя тележка с панели ',
+        526:'Выбранный датчик передняя тележка с панели ',
+        527:'Выбранный датчик на закрытие останова с панели',
+        600:'двигаемся в +(1)/-(0)'
+    }
 }
-.tooltip.fadeout {
-    opacity: 0;
-}
-        #activeCount,#passiveCount
-        {
-            display: none;
-        }
-    </style>
-</head>
-<body>
-    <form id="passwordForm">
-        <label for="password">Введите пароль:</label>
-        <input type="password" id="password" name="password" required>
-        <button type="submit">Отправить</button>
-    </form>
-    <!-- Добавьте счетчики активных и пассивных клиентов -->
-    <p id="activeCount">Активных клиентов: 0</p>
-    <p id="passiveCount">Пассивных клиентов: 0</p>
-    <div id="clientList"></div>
-    <p id="p1">Ответ от сервера:</p>
-    <p id="errorMessage" class="error"></p>
 
-    <script>
-window.onload = () => {
-    document.getElementById('password').focus();
-    const tooltip = document.createElement('span');
-    tooltip.className = 'tooltip';
-    tooltip.textContent = 'Введите пароль';
-    document.body.appendChild(tooltip);
-    // Через 2.5s начнем исчезновение
-    setTimeout(() => {
-        tooltip.classList.add('fadeout');
-    }, 2500);
-    // Удалим из DOM после исчезновения
-    setTimeout(() => {
-        tooltip.remove();
-    }, 4000);
-};
+# Глобальная структура для хранения пользователей
+users = {}  # {ip: {"hostname": "...", "last_seen": datetime, "user_agent": "...", "count": N}}
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
+# --- НАСТРОЙКИ ПЛК--
+C_OFFSET = 61440
+L_OFFSET = 22528
+M_OFFSET = 8192
+SD_OFFSET = 20480 #holding
+DEVICES = [{"id": "PLC_01", "ip": "192.168.161.1", "port": 502}]
+RD_RANGES = [
+    (0,   100),  
+]
+RSD_RANGES = [
+    (SD_OFFSET + 0,   1),   # SD0
+    (SD_OFFSET + 200, 1),   # SD200
+    (SD_OFFSET + 203, 1),   # SD203
+    (SD_OFFSET + 600, 13),  # SD600..SD612
+
+    (SD_OFFSET + 210, 7),   # SD210..SD216 (часы)
+    (SD_OFFSET + 519, 1),   # SD519
+    (SD_OFFSET + 523, 3),   # SD523..SD525
+]
+# ================== НАСТРОЙКИ ==================
+SERVER = r'192.168.149.238\SQLEXPRESS'
+DATABASE = 'yamid'
+USERNAME = 'klient'
+PASSWORD = '1234567'
+DRIVER = 'ODBC Driver 17 for SQL Server'
+clients = {dev["id"]: ModbusTcpClient(dev["ip"], port=dev["port"], timeout=2) for dev in DEVICES}
+conn_params = quote_plus(
+    f"DRIVER={{{DRIVER}}};"
+    f"SERVER={SERVER};"
+    f"DATABASE={DATABASE};"
+    f"UID={USERNAME};"
+    f"PWD={PASSWORD}"
+)
+engine = create_engine(f"mssql+pyodbc:///?odbc_connect={conn_params}")
+
+# ==========================
+#  SCADA JSON MAPPER
+# ==========================
+
+def make_tag(tag_type, addr, val):
+    """Единый формат тега"""
+    return {
+        "type": tag_type,
+        "addr": addr,
+        "val": val,
+        "name": TAGS.get(tag_type, {}).get(addr, "")
+    }
 
 
-        let currentSortKey = null;
-        let sortOrder = false;
+# ---------- RX ----------
+def map_rx(bits):
+    limit = min(len(bits), 40)
+    return [make_tag("RX", i, bits[i]) for i in range(limit)]
 
-        document.getElementById('passwordForm').addEventListener('submit', function(event) {
-            event.preventDefault();
-            const password = document.getElementById('password').value;
-            fetch('/check-password', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ password })
-            })
-            .then(response => response.json())
-            .then(data => {
-                const p1 = document.getElementById("p1");
-                const errorMessage = document.getElementById("errorMessage");
-                
-                if (data.error) {
-                    errorMessage.innerText = data.error;
-                    return;
-                }
 
-                errorMessage.innerText = '';
-                p1.innerHTML = 'Пароль верный! Добро пожаловать!';
-                // Меняем стиль первого элемента
-                document.getElementById('activeCount').style.display = 'block';
-                // Меняем стиль второго элемента
-                document.getElementById('passiveCount').style.display = 'block';
-                const clientList = document.getElementById("clientList");
-                clientList.innerHTML = '';
+# ---------- RY ----------
+def map_ry(bits):
+    limit = min(len(bits), 6)
+    return [make_tag("RY", i, bits[i]) for i in range(limit)]
 
-                const specialIPs = [
-                    ['192.168.62.139', 'Тепло-пункт'],
-                    ['192.168.14.71', 'Деж. энергетик'],
-                    ['192.168.4.138', 'АСУТП сервер'],
-                    ['192.168.4.141', 'АСУТП лаборатория'],
-                    ['192.168.4.139', 'АСУТП Начальник']
-                ];
 
-                const table = document.createElement('table');
-                const thead = document.createElement('thead');
-                const headerRow = document.createElement('tr');
-                headerRow.innerHTML = `
-                    <th onclick="sortTable('ip')">IP</th>
-                    <th onclick="sortTable('count')">Всего запросов</th>
-                    <th onclick="sortTable('lastRequest')">Время последнего запроса</th>
-                    <th onclick="sortTable('status')">Статус</th>
-                `;
-                thead.appendChild(headerRow);
-                table.appendChild(thead);
+# ---------- RC ----------
+def map_rc(values):
+    # PLC адреса 30..157 (128 регистров)
+    limit = min(len(values), 128)
+    return [make_tag("RC", 30 + i, values[i]) for i in range(limit)]
 
-                const tbody = document.createElement('tbody');
 
-                let activeCount = 0;
-                let passiveCount = 0;
+# ---------- RL ----------
+def map_rl(values):
+    limit = min(len(values), 64)
+    return [make_tag("RL", i, values[i]) for i in range(limit)]
 
-                data.clients.forEach(client => { 
-                    if (client.active) {
-                        activeCount++;
-                    } else {
-                        passiveCount++;
-                    }
-                    const clientRow = document.createElement('tr');
-                    clientRow.className = client.active ? 'active' : 'inactive';
 
-                    let ipCellContent = client.ip.replace(/^::ffff:/, '');
+# ---------- RM ----------
+def map_rm(bits):
+    limit = min(len(bits), 600)
+    return [make_tag("RM", i, bits[i]) for i in range(limit)]
 
-                    specialIPs.forEach(ipData => {
-                        if (client.ip.includes(ipData[0])) {
-                            ipCellContent += ` (${ipData[1]})`;
-                        }
-                    });
 
-                    clientRow.innerHTML = `
-                        <td>${ipCellContent}</td>
-                        <td>${client.count}</td>
-                        <td>${new Date(client.lastRequest).toLocaleString()}</td>
-                        <td>${client.active ? 'Активен' : 'Неактивен'}</td>
-                    `;
+# ---------- RD ----------
+def map_rd(values):
+    return [make_tag("RD", i, values[i]) for i in range(len(values))]
 
-                    tbody.appendChild(clientRow);
-                });
 
-                // Обновляем счетчики
-                document.getElementById('activeCount').innerText = 'Активных клиентов: ' + activeCount;
-                document.getElementById('passiveCount').innerText = 'Пассивных клиентов: ' + passiveCount;
+# ---------- SD (особый, с разрывами адресов) ----------
+def map_sd(values):
+    # соответствие: индекс в массиве → реальный SD‑адрес
+    mapping = []
 
-                table.appendChild(tbody);
-                clientList.appendChild(table);
-            })
-            .catch(error => {
-                console.error('Ошибка:', error);
-            });
-        });
+    # SD0
+    mapping.append((0, 0))
 
-        function sortTable(sortKey) {
-    const tbody = document.querySelector("#clientList table tbody");
-    const rows = Array.from(tbody.rows);
+    # SD200, SD203
+    mapping.append((1, 200))
+    mapping.append((2, 203))
+
+    # SD600..SD612 (13 шт)
+    for i in range(13):
+        mapping.append((3 + i, 600 + i))
+
+    # SD210..SD216 (7 шт)
+    base = 3 + 13
+    for i in range(7):
+        mapping.append((base + i, 210 + i))
+
+    # SD519
+    mapping.append((base + 7, 519))
+
+    # SD523..SD525 (3 шт)
+    for i in range(3):
+        mapping.append((base + 8 + i, 523 + i))
+
+    tags = []
+    for list_idx, plc_addr in mapping:
+        if list_idx < len(values):
+            tags.append(make_tag("SD", plc_addr, values[list_idx]))
+
+    return tags
+def extract_plc_datetime(tags):
+    sd = {t["addr"]: t["val"] for t in tags if t["type"] == "SD"}
+
+    try:
+        return datetime(
+            year=sd.get(210, 2000),
+            month=sd.get(211, 1),
+            day=sd.get(212, 1),
+            hour=sd.get(213, 0),
+            minute=sd.get(214, 0),
+            second=sd.get(215, 0)
+        )
+    except:
+        return None
+# ---------- ЕДИНЫЙ SCADA JSON ----------
+def build_scada_json(data):
+    """
+    data = [
+        rx_bits,
+        ry_bits,
+        rc_regs,
+        rl_regs,
+        rd_regs,
+        rm_bits,
+        sd_values
+    ]
+    """
+
+    return (
+        map_rx(data[0]) +
+        map_ry(data[1]) +
+        map_rc(data[2]) +
+        map_rl(data[3]) +
+        map_rd(data[4]) +
+        map_rm(data[5]) +
+        map_sd(data[6])
+    )
+
+
+# --- ОПРОС ПЛК ---
+def read_m_registers(client, m_offset, count=600):
+    """Чтение больших объемов M регистров"""
+    all_values = []
+    chunk_size = 125
+    steps = (count + chunk_size - 1) // chunk_size
     
-    if (currentSortKey === sortKey) {
-        sortOrder = !sortOrder;
-    } else {
-        sortOrder = false;
-    }
-    currentSortKey = sortKey;
+    try:
+        for step in range(steps):
+            current_start = m_offset + step * chunk_size
+            end_address = min(current_start + chunk_size, m_offset + count)
+            
+            result = client.read_coils(current_start, end_address - current_start, unit=1)
+            if result.isError():
+                raise Exception(f"Ошибка чтения M регистров с адреса {current_start}: {result.message}")
+                
+            all_values.extend(result.bits[:end_address-current_start])
+        
+        return all_values
+    except Exception as e:
+        print(f"Ошибка чтения M регистров: {e}")
+        return None
 
-    switch (sortKey) {
-        case 'ip':
-            rows.sort((a, b) => compareIP(a.cells[0].innerText.replace(/^::ffff:/, ''), b.cells[0].innerText.replace(/^::ffff:/, '')));
-            break;
-        case 'count':
-            rows.sort((a, b) => compareValues(parseInt(a.cells[1].innerText), parseInt(b.cells[1].innerText)));
-            break;
-        case 'lastRequest':
-            rows.sort((a, b) => compareValues(new Date(a.cells[2].innerText.split(', ')[0].split('.').reverse().join('-')), new Date(b.cells[2].innerText.split(', ')[0].split('.').reverse().join('-'))));
-            break;
-        case 'status':
-            rows.sort((a, b) => compareValues(a.cells[3].innerText.trim(), b.cells[3].innerText.trim()));
-            break;
-    }
+def read_blocks(client, blocks, unit=1):
+    result = []
+    for addr, count in blocks:
+        res = client.read_holding_registers(addr, count, unit=unit)
+        if res.isError() or not res.registers:
+            raise Exception(f"Ошибка чтения {addr}")
+        result.extend(res.registers)
+    return result
+def read_all_d_registers(client, total=8000, unit=1):
+    chunk = 125
+    result = []
 
-    tbody.innerHTML = '';
-    rows.forEach(row => tbody.appendChild(row));
-}
+    for offset in range(0, total, chunk):
+        size = min(chunk, total - offset)
+        rd = client.read_holding_registers(offset, size, unit=unit)
 
-function compareValues(a, b) {
-    return sortOrder ? ((a > b) ? -1 : (a < b) ? 1 : 0) : ((a < b) ? -1 : (a > b) ? 1 : 0);
-}
+        if rd.isError():
+            raise Exception(f"Ошибка чтения блока offset={offset}, size={size}")
 
-function compareIP(ipA, ipB) {
-    const a = ipA.split('.').map(Number);
-    const b = ipB.split('.').map(Number);
-    for (let i = 0; i < 4; i++) {
-        if (a[i] !== b[i]) {
-            return sortOrder ? b[i] - a[i] : a[i] - b[i];
+        result.extend(rd.registers)
+
+    return result
+
+def poll_device(client, device_info):
+    try:
+        if not client.connect():
+            return None
+
+        rx = client.read_discrete_inputs(0, 64, unit=1)
+        if rx.isError(): raise Exception("Ошибка чтения RX")
+
+        ry = client.read_coils(0, 5, unit=1)
+        if ry.isError(): raise Exception("Ошибка чтения RY")
+
+        rc = client.read_holding_registers(C_OFFSET + 30, 110, unit=1)
+        if rc.isError(): raise Exception("Ошибка чтения RC")
+
+        rl = client.read_holding_registers(L_OFFSET, 64, unit=1)
+        if rl.isError(): raise Exception("Ошибка чтения RL")
+
+        rd = read_all_d_registers(client)
+
+        rm_bits = read_m_registers(client, M_OFFSET, 600)
+        if rm_bits is None: raise Exception("Ошибка чтения RM")
+        
+        rsd = read_blocks(client, RSD_RANGES)
+       
+        return [rx.bits, ry.bits, rc.registers, rl.registers, rd, rm_bits, rsd]
+       
+    except Exception as e:
+        print(f"Ошибка опроса ПЛК: {e}")
+        return None
+    finally:
+        client.close()
+
+def get_plc_data():
+    results = {}
+    for dev_id, client in clients.items():
+        data = poll_device(client, {"id": dev_id})
+        if data:
+
+            results[dev_id] = {
+                "tags": build_scada_json(data)
+            }
+        else:
+            results[dev_id] = None
+    return results
+def resolve(ip):
+    try:
+        return socket.gethostbyaddr(ip)[0]
+    except (socket.herror, socket.gaierror):
+        return "—"          # или "неизвестно", или просто пусто ""
+    
+# ================== УТИЛИТА ДЛЯ БЕЗОПАСНОГО SQL ==================
+def safe_query(query):
+    try:
+        df = pd.read_sql(query, engine)
+        return df
+    except:
+        return pd.DataFrame()
+
+# ================== ЗАГРУЗКА ДАННЫХ (без print) ==================
+def load_data_1(date_str):
+    query = f"""
+        SELECT Id, _data,
+               cep_inf, inf1_, inf2_, inf3_, inf4_, inf5_,
+               inf6_, inf7_, inf8_, inf9_, inf10_, inf11_, inf12_
+        FROM dbo.graf_{date_str}
+    """
+    return safe_query(query).fillna("").to_dict(orient='records')
+
+def load_data_2(date_str):
+    query = f"""
+        SELECT Id, na_lente, tek_stop
+        FROM dbo.ist_ostan_{date_str}
+    """
+    return safe_query(query).fillna("").to_dict(orient='records')
+
+def load_data_3(date_str):
+    query = f"""
+        SELECT Id, _data, cep_inf,
+               inf1_, inf2_, inf3_, inf4_, inf5_,
+               inf6_, inf7_, inf8_, inf9_, inf10_, inf11_, inf12_
+        FROM dbo.data_on_line{date_str}
+    """
+    return safe_query(query).fillna("").to_dict(orient='records')
+
+# ================== FLASK ==================
+app = Flask(__name__)
+
+@app.before_request
+def log_user_to_console_and_memory():
+    if request.path in ('/favicon.ico', '/static/', '/users'):
+        return
+
+    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    if client_ip:
+        client_ip = client_ip.split(',')[0].strip()
+
+    hostname = resolve(client_ip)
+    now = datetime.now()
+    ua = request.headers.get('User-Agent', '—')[:80]
+
+    # Обновляем/добавляем пользователя
+    if client_ip not in users:
+        users[client_ip] = {
+            "hostname": hostname,
+            "first_seen": now,
+            "last_seen": now,
+            "user_agent": ua,
+            "request_count": 1
         }
-    }
-    return 0;
-}
+    else:
+        users[client_ip]["last_seen"] = now
+        users[client_ip]["request_count"] += 1
+        # Можно обновить UA, если изменился, но обычно не нужно
 
-    </script>
-</body>
-</html>
+    # Вывод в консоль (как было)
+    print(f"{now.strftime('%H:%M:%S')}   {client_ip:>15}   {hostname}")
+
+# Роуты без изменений
+@app.route("/")
+def index():
+    return render_template("index.html")
+@app.route("/plc")
+def plc_page():
+    return render_template("plc.html")
+@app.route("/data")
+def get_data():
+    date_str = request.args.get("date", "")
+    if not date_str:
+        return jsonify({"graf_": [], "list_ostan": [], "data_on_line": []})
+
+    graf = load_data_1(date_str)
+    ostan = load_data_2(date_str)
+    online = load_data_3(date_str)
+
+    return jsonify({
+        "graf_": graf,
+        "list_ostan": ostan,
+        "data_on_line": online
+    })
+@app.route("/plc_get")
+def plc_get():
+    # Здесь вызывается тяжелый опрос
+    plc_data = get_plc_data()
+    return jsonify(plc_data)
+
+
+# Новый роут — список пользователей (JSON для фронта)
+@app.route("/users")
+def get_users():
+    now = datetime.now()
+    active_threshold = now - timedelta(minutes=30)  # считаем активным, если был запрос за последние 30 мин
+
+    active_users = []
+    for ip, data in users.items():
+        if data["last_seen"] >= active_threshold:
+            active_users.append({
+                "ip": ip,
+                "hostname": data["hostname"],
+                "last_seen": data["last_seen"].strftime("%H:%M:%S"),
+                "requests": data["request_count"],
+                "user_agent": data["user_agent"][:60]  # укорачиваем, чтобы не ломать таблицу
+            })
+
+    # Сортируем по времени последнего запроса (новые сверху)
+    active_users.sort(key=lambda x: x["last_seen"], reverse=True)
+
+    return jsonify({"users": active_users})
+@app.after_request
+def disable_cache(response):
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
+
+def open_browser():
+    webbrowser.open("http://127.0.0.1")
+
+if __name__ == "__main__":
+    threading.Timer(1.0, open_browser).start()
+    app.run(
+        host="0.0.0.0",
+        port=80,
+        debug=True,
+        use_reloader=False   # ← вот это ключевое
+    )
