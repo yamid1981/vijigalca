@@ -439,27 +439,23 @@ def extract_plc_datetime(tags):
         return None
 # ---------- ЕДИНЫЙ SCADA JSON ----------
 def build_scada_json(data):
-    """
-    data = [
-        rx_bits,
-        ry_bits,
-        rc_regs,
-        rl_regs,
-        rd_regs,
-        rm_bits,
-        sd_values
-    ]
-    """
-
-    return (
+    # Теги, которые нужно фильтровать (только с именами)
+    filtered_parts = (
         map_rx(data[0]) +
         map_ry(data[1]) +
         map_rc(data[2]) +
         map_rl(data[3]) +
-        map_rd(data[4]) +
         map_rm(data[5]) +
         map_sd(data[6])
     )
+    
+    # Оставляем только те, где name не пустое
+    tags_with_names = [tag for tag in filtered_parts if tag["name"]]
+    
+    # Регистры D добавляем целиком без фильтрации
+    d_registers = map_rd(data[4])
+    
+    return tags_with_names + d_registers
 
 
 # --- ОПРОС ПЛК ---
@@ -544,13 +540,8 @@ def get_plc_data():
     results = {}
     for dev_id, client in clients.items():
         data = poll_device(client, {"id": dev_id})
-        if data:
-
-            results[dev_id] = {
-                "tags": build_scada_json(data)
-            }
-        else:
-            results[dev_id] = None
+        if data: results[dev_id] = {"tags": build_scada_json(data)}
+        else:    results[dev_id] = None
     return results
 def resolve(ip):
     try:
