@@ -1,12 +1,11 @@
 from pymodbus.client.sync import ModbusTcpClient
 import pymodbus
-print("pymodbus version:", pymodbus.__version__)  
-
+print("pymodbus version:", pymodbus.__version__)  # pymodbus version: 2.5.3
+import threading
+import time
 from flask import Flask, render_template, jsonify, request
 import pandas as pd
-import threading
 import webbrowser
-from datetime import datetime
 from sqlalchemy import create_engine
 import socket
 import logging
@@ -15,7 +14,11 @@ from urllib.parse import quote_plus
 from collections import defaultdict
 from datetime import datetime, timedelta
 warnings.filterwarnings("ignore", category=UserWarning, message="pandas only supports SQLAlchemy")
-# Словари с ПРАВИЛЬНЫМИ десятичными индексами (пересчитано из Octal)
+# Создаем глобальный кэш для данных ПЛК
+plc_cache = {
+    "tags": [],
+    "last_update": 0
+}
 TAGS = {
 'SD': {
         0:   'Код ошибки самодиагностики',
@@ -163,6 +166,15 @@ TAGS = {
 130:   'тек.знач.(1-4) режим D130:=C103;',
 140:   'тек.знач.5-ый режим D140:=C101;',
 200:   'коментарий закладчика главный экран',
+201:   'коментарий закладчика главный экран',
+202:   'коментарий закладчика главный экран',
+203:   'коментарий закладчика главный экран',
+204:   'коментарий закладчика главный экран',
+205:   'коментарий закладчика главный экран',
+206:   'коментарий закладчика главный экран',
+207:   'коментарий закладчика главный экран',
+208:   'коментарий закладчика главный экран',
+209:   'коментарий закладчика главный экран',
 210:   '2-ая строчка для выбора базы на панели',
 220:   '3-ая строчка для выбора базы на панели',
 230:   '4-ая строчка для выбора базы на панели',
@@ -198,7 +210,7 @@ TAGS = {
         3:  'очистка данных задания',
         4:  'цепь не движется',
         5:  'Кнопка на пульту откл/вкл слежение(была)',
-        6:  'кнопка на пульту квитирование',
+        6:  'кнопка на пульту квитирование (игнарирование) датчика закрытия',
         7:  'Сработает после ввода данных на понели d9',
         8:  'Сработает после ввода данных на понели d3030',
         9:  'тригер для экрана ЛОГ',
@@ -240,10 +252,15 @@ TAGS = {
         45: 'стоп/пуск узла контроля остановов',
         46: 'стоп/пуск узла счета баз',
         50: 'Не соответствие выход = вход в течении 2 сек',
+        51: 'Исключить зацикливание',
+        52: 'M52=0 Cообщение Необходимо выбрать расстаяние между передними стойками',
+        53: 'M53:=1; надписи 36 и 41 моргают',
+        97: 'УДАЛЕНИЕ СТРОЧКИ СО СМЕЩЕНИЕМ экран рецептов',
         99: 'начало передняя база',
         100:'сдвиг',
         101:'начало задняя база',
         102:'Сместить задание из списка на 1 позицию',
+        105:'ОТ ЗАЦИКЛИВАНИЯ при записи архива не cd карту',
         109:'S37 задняя тележка в останове',
         110:'S38 задняя тележка в останове',
         111:'Тригер для формирования истории баз',
@@ -268,6 +285,9 @@ TAGS = {
         204:'выключить цепь',
         205:'нет задней тележки',
         300:'переключатель выбор схемы контр/реле',
+        401:'добавить к модели данные базы',
+        402:'ЗАНЕСЕНИЯ С АРХИВА В СТРОЧКУ задания экрае рецепты',
+        403:'Если =1 то данные закладки из вне пересчет длинны и название базы',       
         500:'память Y0 открыть',
         501:'память Y1 закрыть',
         502:'память Y2 открыть',
@@ -277,7 +297,6 @@ TAGS = {
         525:'Выбранный датчик задняя тележка с панели ',
         526:'Выбранный датчик передняя тележка с панели ',
         527:'Выбранный датчик на закрытие останова с панели',
-        600:'двигаемся в +(1)/-(0)'
     }
 }
 
@@ -503,17 +522,17 @@ def poll_device(client, device_info):
         rc = client.read_holding_registers(C_OFFSET + 30, 110, unit=1)
         if rc.isError(): raise Exception("Ошибка чтения RC")
 
-        rl = client.read_holding_registers(L_OFFSET, 64, unit=1)
+        rl = client.read_coils(L_OFFSET, 64, unit=1)
         if rl.isError(): raise Exception("Ошибка чтения RL")
 
-        rd = read_all_d_registers(client)
+        rd = read_all_d_registers(client) #8000 регистров
 
-        rm_bits = read_m_registers(client, M_OFFSET, 600)
+        rm_bits = read_m_registers(client, M_OFFSET, 528)
         if rm_bits is None: raise Exception("Ошибка чтения RM")
         
         rsd = read_blocks(client, RSD_RANGES)
        
-        return [rx.bits, ry.bits, rc.registers, rl.registers, rd, rm_bits, rsd]
+        return [rx.bits, ry.bits, rc.registers, rl.bits, rd, rm_bits, rsd]
        
     except Exception as e:
         print(f"Ошибка опроса ПЛК: {e}")
