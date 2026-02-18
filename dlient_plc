@@ -22,40 +22,6 @@ h3 { color: #38bdf8; margin: 0 0 10px 0; font-size: 1.1em; border-bottom: 1px so
 .reg-table td { padding: 4px 8px;  border-bottom: 1px solid #334155; }
 .reg-table td:nth-child(4) {    max-width: 220px;    white-space: normal;    color: #94a3b8;}
 .reg-val {    min-width: 80px;}
-/* Анимация для изменившихся значений */
-@keyframes flash-green {
-    0% { background: rgba(34, 197, 94, 0.4); }
-    100% { background: transparent; }
-}
-.changed-flash {
-    animation: flash-green 2s ease-out;
-    border-radius: 4px;
-}
-/* Красивый стиль для расшифрованных строк */
-.string-hint {
-    color: #86efac;
-    font-weight: 600;
-    background: rgba(134, 239, 172, 0.05);
-    padding: 2px 8px;
-    border-radius: 10px;
-    display: inline-block;
-}
-
-/* Скроллбар потоньше для красоты */
-.scroll::-webkit-scrollbar { width: 6px; }
-.scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
-.changed-flash { animation: flash-yellow 1.5s ease; }
-@keyframes flash-yellow {
-    0% { background: rgba(251, 191, 36, 0.5); color: #fff; }
-    100% { background: transparent; }
-}
-.string-hint { 
-    color: #86efac; 
-    font-size: 11px; 
-    border-left: 2px solid #22c55e; 
-    padding-left: 8px; 
-    font-style: italic; 
-}
 </style>
 </head>
 <body>
@@ -94,110 +60,316 @@ h3 { color: #38bdf8; margin: 0 0 10px 0; font-size: 1.1em; border-bottom: 1px so
         </div>
 </div>
 <script>
-var _sys_time = "";
-var _prev_values = {}; // Хранилище для отслеживания изменений
+var _sys_time="";
+function decodeUtf16FromRegisters(regs) {
+    const bytes = [];
 
-// Функция для красивой подсветки изменений
-function getValClass(id, newVal) {
-    const key = id;
-    const oldVal = _prev_values[key];
-    _prev_values[key] = newVal;
-    if (oldVal !== undefined && oldVal !== newVal) {
-        return 'reg-val changed-flash'; // Класс для анимации
+    for (let i = 0; i < regs.length; i++) {
+        const val = regs[i];
+        const lo = val & 0xFF;
+        const hi = (val >> 8) & 0xFF;
+        bytes.push(lo, hi);
     }
-    return 'reg-val';
-}
 
+    try {
+        return new TextDecoder('utf-16le').decode(new Uint8Array(bytes));
+    } catch {
+        return null;
+    }
+}
+function decodeStringBlock(arr, startIdx) {
+    const bytes = [];
+
+    for (let i = startIdx; i < arr.length; i++) {
+        const val = arr[i].val;
+
+        // конец строки (0x0000)
+        if (val === 0) break;
+
+        const lo = val & 0xFF;
+        const hi = (val >> 8) & 0xFF;
+        bytes.push(lo, hi);
+    }
+
+    try {
+        return new TextDecoder('utf-16le').decode(new Uint8Array(bytes));
+    } catch {
+        return null;
+    }
+}
+function filterTags(tags, type) {
+    return tags.filter(t => t.type === type);
+}
+function fillTableRSD(arr) {
+    const table = document.getElementById('rsd-table');
+    table.innerHTML = '';
+    arr.forEach(item => {
+        let displayVal = item.val;
+        let comment = '';
+        const idx = item.addr;  // <-- главное изменение
+        if (idx === 0) { comment = item.val === 0 ? '✔ Нет ошибок' : `Ошибка: ${item.val.toString(16).toUpperCase()}h`;} 
+else if (idx === 200) {
+    // SD200 — CPU Switch Status
+    if (item.val === 0) {
+        comment = '✔ Контроллер в режиме RUN';
+    } else if (item.val === 1) {
+        comment = '⚠️ Контроллер в режиме STOP';
+    } else {
+        comment = `??? Неизвестное состояние (${item.val})`;
+    }
+} else if (idx === 203) {
+    // SD203 — CPU Status (b0 RUN, b2 STOP, b3 PAUSE)
+    const v = item.val;
+    const isRun  = (v & 0b0001) !== 0;
+    const isStop = (v & 0b0100) !== 0;
+    const isPause = (v & 0b1000) !== 0;
+    if (isRun) {
+        comment = '✔ CPU RUN (b0=1)';
+    } else if (isStop) {
+        comment = '⚠️ CPU STOP (b2=1)';
+    } else if (isPause) {
+        comment = '⚠️ CPU PAUSE (b3=1)';
+    } else {
+        // FX5U часто отдаёт SD203 = 0 в RUN режиме
+        comment = '✔ CPU RUN (все биты = 0)';
+    }
+} else if (idx === 600) {
+    // SD600 — SD Memory Card Installation / Enable
+    if (item.val === 64) {
+        comment = '✔ SD‑карта вставлена и инициализирована (0x0040)';
+    } else if (item.val === 0) {
+        comment = '⚠️ SD‑карта отсутствует или отключена';
+    } else {
+        comment = `??? Неожиданное значение SD600 (${item.val})`;
+    }
+}
+else if (idx === 604) {
+    if (item.val === 0) {
+        comment = '✔ SD‑карта в раб. режиме';
+    } else if (item.val === 1) {
+        comment = '⏳ SD‑карта: операция чтения';
+    } else if (item.val === 2) {
+        comment = '💾 SD‑карта: операция записи';
+    } else {
+        comment = `⚠️ Неизвестное состояние SD604 (${item.val})`;
+    }
+}
+else if (idx === 210) {
+    comment = '⏰ Системные часы PLC - год';
+    _sys_time +=`             Время в контроллере  ${item.val}-`;
+}
+else if (idx === 211) {
+    comment = '⏰ Системные часы PLC - мес';
+    _sys_time += `${item.val}-`;
+}
+else if (idx === 212) {
+    comment = '⏰ Системные часы PLC - день';
+    _sys_time += `${item.val} `;
+}
+else if (idx === 213) {
+    comment = '⏰ Системные часы PLC - час';
+    _sys_time += ` ${item.val}:`;
+}
+else if (idx === 214) {
+    comment = '⏰ Системные часы PLC - мин';
+    _sys_time +=`${item.val}:`;
+}
+else if (idx === 215) {
+    comment = '⏰ Системные часы PLC - сек';
+    _sys_time += `${item.val}`;
+}
+else if (idx === 519) {
+    comment = `Initial scan: ${item.val} µs`;
+}
+else if (idx === 523) {
+    comment = `Min scan: ${item.val} µs`;
+}
+else if (idx === 524) {
+    comment = `Max scan: ${item.val} ms`;
+}
+else if (idx === 525) {
+    comment = `Max scan: ${item.val} µs`;
+}
+        else if (idx === 606) {
+            const low  = item.val;
+            const high = arr.find(i => i.addr === 607)?.val || 0;
+            const totalKB = (high * 65536) + low;
+            displayVal = totalKB;
+            comment = `≈ ${(totalKB / 1024 / 1024).toFixed(2)} ГБ всего`;} 
+        else if (idx === 610) {
+            const low  = item.val;
+            const high = arr.find(i => i.addr === 611)?.val || 0;
+            const freeKB = (high * 65536) + low;
+            displayVal = freeKB;
+            comment = `≈ ${(freeKB / 1024).toFixed(1)} МБ свободно`;
+            if (freeKB < 50000) comment += ' ⚠️ Мало места!';}
+        if (!item.name && item.val === 0) return;
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td class="reg-idx">SD${idx}</td>
+            <td class="reg-name">${item.name || '—'}</td>
+            <td class="reg-val">${displayVal}</td>
+            <td style="color:#94a3b8; font-size:0.9em;">${comment}</td>
+        `;
+        table.appendChild(row);
+    });
+}
+function toOctal(idx) {
+            let dec = parseInt(idx);
+            return (Math.floor(dec / 8) * 10 + (dec % 8)).toString();
+        }
+function formatTime(seconds) {
+    if (!seconds || seconds < 0) return "0:00:00";
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    // Формат Ч:ММ:СС (как в твоем WinForm)
+    return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+function fillTableRM(arr) {
+    const table = document.getElementById('rm-table');
+    table.innerHTML = '';
+    arr.forEach(item => {
+        if (!item.name) return;
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td class="reg-idx">M${item.addr}</td>
+            <td class="reg-name">${item.name || '---'}</td>
+            <td class="reg-val">${item.val}</td>
+        `;
+        table.appendChild(row);
+    });
+}
 async function update() {
     try {
-        _sys_time = "";
+        _sys_time="";
         const res = await fetch('/plc_get');
         const data = await res.json();
         const plc = data.PLC_01;
         if (!plc) throw new Error();
-
         const tags = plc.tags;
-        
-        // Визуализация битовых цепочек (X, Y)
-        renderBits('rx-container', filterTags(tags, "RX"), 'X');
-        renderBits('ry-container', filterTags(tags, "RY"), 'Y');
-
-        // Таблицы
-        fillTable('rc-table', filterTags(tags, "RC"), 'C');
-        fillTable('rl-table', filterTags(tags, "RL"), 'L');
-        fillTable('rm-table', filterTags(tags, "RM"), 'M');
-        fillTable('rd-table', filterTags(tags, "RD"), 'D');
-        fillTableRSD(filterTags(tags, "SD"));
-
+        const rx = filterTags(tags, "RX");
+        const ry = filterTags(tags, "RY");
+        const rc = filterTags(tags, "RC");
+        const rl = filterTags(tags, "RL");
+        const rm = filterTags(tags, "RM");
+        const rd = filterTags(tags, "RD");
+        const sd = filterTags(tags, "SD");
+        // RX визуализация
+        document.getElementById('rx-container').innerHTML = rx.map(item => {
+            let oct = 'X' + toOctal(item.addr);
+            let fullName = item.name || oct;
+            return `<div class="bit-box ${item.val ? 'active' : ''}" title="${fullName}">
+                        <b>${item.name ? item.name.substring(0, 10) + '..' : oct}</b><br>
+                        <span style="opacity:0.6">${oct}</span>
+                    </div>`;
+        }).join('');
+        // RY визуализация
+        document.getElementById('ry-container').innerHTML = ry.map(item => {
+            let oct = 'Y' + toOctal(item.addr);
+            let fullName = item.name || oct;
+            return `<div class="bit-box ${item.val ? 'active' : ''}" title="${fullName}">
+                        <b>${item.name ? item.name.substring(0, 10) + '..' : oct}</b><br>
+                        <span style="opacity:0.6">${oct}</span>
+                    </div>`;
+        }).join('');
+        fillTable('rc-table', rc, 'C');
+        fillTable('rl-table', rl, 'L');
+        fillTable('rd-table', rd, 'D');
+        fillTableRM(rm);
+        fillTableRSD(sd);
         const status = document.getElementById('status-bar');
         status.style.background = "#065f46";
         status.innerText = "ОБНОВЛЕНО: " + new Date().toLocaleTimeString();
-        document.getElementById('plc_time').textContent = _sys_time;
+        document.getElementById('plc_time').textContent=_sys_time;
     } catch(e) { 
-        document.getElementById('status-bar').style.background = "#451a1a";
-        document.getElementById('status-bar').innerText = "НЕТ СВЯЗИ С ПЛК";
+        const status = document.getElementById('status-bar');
+        status.style.background = "#451a1a";
+        status.innerText = "НЕТ СВЯЗИ С ПЛК";
     }
 }
-
-function renderBits(containerId, tags, prefix) {
-    document.getElementById(containerId).innerHTML = tags.map(item => {
-        let oct = prefix + toOctal(item.addr);
-        return `<div class="bit-box ${item.val ? 'active' : ''}" title="${item.name || oct}">
-                    <b>${item.name ? item.name.substring(0, 10) + '..' : oct}</b><br>
-                    <span style="opacity:0.6">${oct}</span>
-                </div>`;
-    }).join('');
-}
-
 function fillTable(id, arr, prefix) {
     const table = document.getElementById(id);
     table.innerHTML = '';
 
-    for (let i = 0; i < arr.length; i++) {
-        const item = arr[i];
-        if (!item.name && item.val === 0) continue;
+    if (prefix === 'C') {
+        const rcOrder = [30,31,32,33,34,35,36,37,40,41,42,44,45,46,50,101,102,103,104,110];
+        
+        rcOrder.forEach(targetIdx => {
+            const item = arr.find(i => i.addr === targetIdx);
+            if (!item) return;
 
-        let extraText = '';
-        let skipCount = 0;
+            let displayVal = [101,102,103,104,110].includes(targetIdx) 
+                ? item.val 
+                : formatTime(item.val);
 
-        // Логика авто-склейки строк для D и L регистров
-        if ((prefix === 'D' || prefix === 'L') && item.val > 0) {
-            let fullString = "";
-            let j = i;
-            while (j < arr.length && arr[j].val > 0 && (j === i || !arr[j].name)) {
-                const lo = arr[j].val & 0xFF;
-                const hi = (arr[j].val >> 8) & 0xFF;
-                const part = new TextDecoder('windows-1251').decode(new Uint8Array([lo, hi]));
-                const clean = part.replace(/[\x00-\x1F\x7F]/g, '');
-                if (clean.length === 0) break;
-                fullString += clean;
-                j++;
-                if (j - i > 12) break; // Ограничение длины строки
+            let valueColor = item.val > 0 ? '#fbbf24' : '#666';
+
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td class="reg-idx">C${targetIdx}</td>
+                <td class="reg-name">${item.name || '---'}</td>
+                <td class="reg-val" style="color: ${valueColor}">${displayVal}</td>
+            `;
+            table.appendChild(row);
+        });
+    } 
+        else {  
+        for (let i = 0; i < arr.length; i++) {
+            const item = arr[i];
+            // Пропускаем пустые, если нет имени и значения
+            if (!item.name && item.val === 0) continue;
+
+            let extraText = '';
+            let skipCount = 0;
+
+            // Логика склейки
+            if ((prefix === 'D' || item.type === 'RD') && item.val > 0) {
+                let fullString = "";
+                let j = i;
+
+                while (j < arr.length && arr[j].val > 0) {
+                    const lo = arr[j].val & 0xFF;
+                    const hi = (arr[j].val >> 8) & 0xFF;
+                    const bytes = new Uint8Array([lo, hi]);
+                    const decoded = new TextDecoder('windows-1251').decode(bytes);
+                    const clean = decoded.replace(/[\x00-\x1F\x7F]/g, '');
+                    
+                    if (clean.length === 0) break;
+                    fullString += clean;
+                    j++;
+                    // Если у следующего регистра есть свое Имя в ПЛК — прерываем склейку
+                    if (j < arr.length && arr[j].name) break; 
+                }
+
+                if (fullString.trim().length > 1) {
+                    extraText = `<span style="color:#86efac; font-weight:600; margin-left:12px; padding: 2px 6px; background: rgba(134, 239, 172, 0.1); border-radius: 4px;">
+                                    "${fullString.trim()}"
+                                 </span>`;
+                    // ОПРЕДЕЛЯЕМ, сколько регистров мы поглотили
+                    skipCount = (j - i) - 1; 
+                }
             }
-            if (fullString.trim().length > 1) {
-                extraText = `<div class="string-hint">"${fullString.trim()}"</div>`;
-                skipCount = (j - i) - 1;
+
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td class="reg-idx">${prefix}${item.addr}</td>
+                <td class="reg-name">${item.name || '---'}</td>
+                <td class="reg-val">${item.val} ${extraText}</td>
+            `;
+            table.appendChild(row);
+
+            // ШАГ ПЕРЕХОДА: пропускаем регистры, которые уже стали частью строки
+            if (skipCount > 0) {
+                i += skipCount;
             }
         }
-
-        const valClass = getValClass(prefix + item.addr, item.val);
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td class="reg-idx">${prefix}${item.addr}</td>
-            <td class="reg-name">${item.name || '---'}</td>
-            <td class="${valClass}">${item.val}</td>
-            <td>${extraText}</td>
-        `;
-        table.appendChild(row);
-        if (skipCount > 0) i += skipCount;
     }
+
+
 }
 
-// Вспомогательные функции
-function toOctal(n) { return n.toString(8); }
-function filterTags(tags, type) { return tags.filter(t => t.type === type); }
-document.getElementById('update-button').onclick = update;
-setInterval(update, 5000); // Автообновление раз в 3 сек
+document.getElementById('update-button').addEventListener('click', update);
 update();
     </script>
 </body>
