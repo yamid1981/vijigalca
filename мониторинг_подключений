@@ -1,0 +1,242 @@
+import psutil
+import socket
+import threading
+import webbrowser
+import json        # <—— ЭТО БЫЛО ПРОПУЩЕНО!
+import time
+from datetime import datetime
+from flask import Flask, render_template_string
+from scapy.all import sniff, IP, ICMP, TCP
+
+# === Конфиг ===
+LOGFILE = r"C:\0\connections_log.txt"
+seen_icmp = {}
+seen_tcp_probes = {}
+prev_active = set()
+
+app = Flask(__name__)
+
+def get_my_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except:
+        return "127.0.0.1"
+
+MY_IP = get_my_ip()
+
+def is_loopback(ip): return ip.startswith("127.") or ip == "::1"
+
+def resolve(ip):
+    try: return socket.gethostbyaddr(ip)[0]
+    except: return "-"
+
+def log_entry(entry):
+    line = json.dumps(entry, ensure_ascii=False)
+    print(line)
+    with open(LOGFILE, "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+
+# === HTML шаблон ===
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Мониторинг подключений • {{ my_ip }}</title>
+    <style>
+        body {font-family: Segoe UI, sans-serif; background: #1a1a1a; color: #eee; margin: 0; padding: 20px;}
+        h1 {text-align: center; color: #00ff88;}
+        table {width: 100%; border-collapse: collapse; background: #2d2d2d; border-radius: 10px; overflow: hidden; box-shadow: 0 0 20px rgba(0,255,136,0.2);}
+        th {background: #00ff88; color: #000; padding: 15px; text-align: left;}
+        td {padding: 12px 15px; border-bottom: 1px solid #444;}
+        tr:hover {background: #3a3a3a;}
+        .tcp {border-left: 4px solid #3498db;}
+        .icmp {border-left: 4px solid #f39c12;}
+        .conn {border-left: 4px solid #e74c3c; font-weight: bold;}
+        .telnet {background: #440000 !important; color: #ff8888;}
+        .time {color: #00ff88; font-family: monospace;}
+        .badge {padding: 4px 10px; border-radius: 20px; font-size: 0.8em; background: #444;}
+        footer {text-align: center; margin-top: 30px; color: #666; font-size: 0.9em;}
+    </style>
+    <script>
+function sortTable(colIndex, isIp = false, dir = 'desc') {
+    const table = document.querySelector('table');
+    const tbody = table.tBodies[0] || table.querySelector('tbody');
+    const rows = Array.from(tbody.rows);
+
+    rows.sort((a, b) => {
+        let x = a.cells[colIndex].textContent.trim();
+        let y = b.cells[colIndex].textContent.trim();
+
+        if (isIp) {
+            const xParts = x.split('.').map(n => parseInt(n) || 0);
+            const yParts = y.split('.').map(n => parseInt(n) || 0);
+            
+            for (let i = 0; i < 4; i++) {
+                if (xParts[i] !== yParts[i]) {
+                    return dir === 'asc' ? xParts[i] - yParts[i] : yParts[i] - xParts[i];
+                }
+            }
+            return 0;
+        }
+
+        // остальная часть функции без изменений
+        const xNum = parseFloat(x);
+        const yNum = parseFloat(y);
+        if (!isNaN(xNum) && !isNaN(yNum)) {
+            return dir === 'asc' ? xNum - yNum : yNum - xNum;
+        }
+
+        return dir === 'asc' ? x.localeCompare(y) : y.localeCompare(x);
+    });
+
+    rows.forEach(row => tbody.appendChild(row));
+}
+    </script>
+</head>
+<body>
+    <h1>Мониторинг входящих подключений</h1>
+    <p style="text-align:center;">Локальный IP: <strong>{{ my_ip }}</strong> • Обновляется каждые 5 сек • Уникальных IP: {{ total }}</p>
+    
+<table>
+    <tr>
+        <th>Время</th>
+        <th>Тип</th>
+        <th onclick="sortTable(2, true)">IP</th>
+        <th>Хост</th>
+        <th>Порт / Флаги</th>
+        <th>Детали</th>
+    </tr>
+    {% for e in events %}
+    <tr class="{{ e.css }}">
+        <td class="time">{{ e.time }}</td>
+        <td><span class="badge">{{ e.type }}</span></td>
+        <td><strong>{{ e.ip }}</strong></td>
+        <td>{{ e.host }}</td>
+        <td>{{ e.port_flags }}</td>
+        <td>{{ e.details }}</td>
+    </tr>
+    {% endfor %}
+</table>
+    {% if not events %}
+    <p style="text-align:center; color:#666; padding:50px;">Ожидание активности...</p>
+    {% endif %}
+    <footer>Live Monitor • {{ now }}</footer>
+</body>
+</html>
+"""
+
+def get_events():
+    events = []
+    seen_ips = set()
+    try:
+        with open(LOGFILE, "r", encoding="utf-8") as f:
+            for raw in f:
+                raw = raw.strip()
+                if not raw: continue
+                try:
+                    e = json.loads(raw)
+                    ip = e.get("src_ip") or e.get("remote_ip")
+                    if not ip or ip in seen_ips: continue
+                    seen_ips.add(ip)
+
+                    t = e["timestamp"][:19].replace("T", " ")
+                    host = e.get("src_name") or e.get("remote_name") or resolve(ip)
+
+                    if e["type"] == "tcp_probe":
+                        events.append({"time":t, "type":"TCP PROBE", "ip":ip, "host":host,
+                                      "port_flags":f"{e['port']} • {e.get('flags','')}",
+                                      "details":"Сканирование", "css":"tcp"})
+                    elif e["type"] == "icmp_ping":
+                        events.append({"time":t, "type":"ICMP PING", "ip":ip, "host":host,
+                                      "port_flags":"—", "details":f"Пинг → {e.get('dst_ip')}",
+                                      "css":"icmp"})
+                    elif e["type"] in ["tcp", "telnet"]:
+                        css = "conn telnet" if e["type"]=="telnet" else "conn"
+                        events.append({"time":t, "type":"TELNET" if e["type"]=="telnet" else "TCP CONNECT",
+                                      "ip":ip, "host":host, "port_flags":e["remote_port"],
+                                      "details":f"PID: {e.get('pid','?')}", "css":css})
+                except: continue
+    except: pass
+    return events[::-1]  # новые сверху
+
+@app.route("/")
+def index():
+    return render_template_string(HTML_TEMPLATE,
+        my_ip=MY_IP, events=get_events(), total=len(get_events()),
+        now=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+# === Мониторинг ===
+def snapshot_connections():
+    global prev_active
+    current = set()
+    for conn in psutil.net_connections(kind='inet'):
+        if conn.raddr and conn.status == "ESTABLISHED":
+            if is_loopback(conn.raddr.ip) or conn.laddr.ip != MY_IP:
+                continue
+            key = (conn.raddr.ip, conn.raddr.port, conn.pid)
+            current.add(key)
+            if key not in prev_active:
+                log_entry({
+                    "timestamp": datetime.now().isoformat(),
+                    "type": "telnet" if conn.raddr.port == 23 else "tcp",
+                    "remote_ip": conn.raddr.ip,
+                    "remote_port": conn.raddr.port,
+                    "remote_name": resolve(conn.raddr.ip),
+                    "pid": conn.pid
+                })
+    prev_active = current
+
+def icmp_callback(pkt):
+    if IP in pkt and ICMP in pkt and pkt[IP].src != MY_IP and not is_loopback(pkt[IP].src):
+        ip = pkt[IP].src
+        if ip not in seen_icmp:
+            seen_icmp[ip] = True
+            log_entry({
+                "timestamp": datetime.now().isoformat(),
+                "type": "icmp_ping",
+                "src_ip": ip,
+                "src_name": resolve(ip),
+                "dst_ip": pkt[IP].dst
+            })
+
+def tcp_callback(pkt):
+    if IP in pkt and TCP in pkt:
+        ip = pkt[IP].src
+        if ip == MY_IP or is_loopback(ip): return
+        if ip not in seen_tcp_probes:
+            seen_tcp_probes[ip] = True
+            flag_map = {2:"SYN", 16:"ACK", 18:"PSH+ACK", 4:"RST", 17:"FIN+ACK"}
+            log_entry({
+                "timestamp": datetime.now().isoformat(),
+                "type": "tcp_probe",
+                "src_ip": ip,
+                "dst_ip": pkt[IP].dst,
+                "port": pkt[TCP].dport,
+                "flags": flag_map.get(pkt[TCP].flags, str(pkt[TCP].flags))
+            })
+
+# === Запуск ===
+if __name__ == "__main__":
+    print(f"[+] Локальный IP: {MY_IP}")
+    print("[+] Запуск веб-сервера на http://127.0.0.1:5000")
+
+    # Открываем браузер через секунду
+    threading.Timer(1.0, lambda: webbrowser.open("http://127.0.0.1:5000")).start()
+
+    # Фоновые потоки
+    threading.Thread(target=lambda: sniff(filter="icmp", prn=icmp_callback, store=0), daemon=True).start()
+    threading.Thread(target=lambda: sniff(filter="tcp", prn=tcp_callback, store=0), daemon=True).start()
+    
+    def conn_watcher():
+        while True:
+            snapshot_connections()
+            time.sleep(5)
+    threading.Thread(target=conn_watcher, daemon=True).start()
+
+    # Flask
+    app.run(host="0.0.0.0", port=5000, threaded=True, use_reloader=False)
