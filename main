@@ -14,12 +14,7 @@ from datetime import datetime, timedelta
 warnings.filterwarnings("ignore", category=UserWarning, message="pandas only supports SQLAlchemy")
 IP_ADDR = "192.168.161.1"
 PORT = 5000
-MAX_WORKERS = 4 
 # Создаем глобальный кэш для данных ПЛК
-plc_cache = {
-    "tags": [],
-    "last_update": 0
-}
 TAGS = {
 'SD': {
         0:   'Код ошибки самодиагностики',
@@ -374,28 +369,13 @@ TAGS = {
 users = {}  # {ip: {"hostname": "...", "last_seen": datetime, "user_agent": "...", "count": N}}
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
-# --- НАСТРОЙКИ ПЛК--
-C_OFFSET = 61440
-L_OFFSET = 22528
-M_OFFSET = 8192
-SD_OFFSET = 20480 #holding
-DEVICES = [{"id": "PLC_01", "ip": "192.168.161.1", "port": 502}]
-RD_RANGES = [    (0,   100),  ]
-RSD_RANGES = [
-    (SD_OFFSET + 0,   1),   # SD0
-    (SD_OFFSET + 200, 4),   # SD200..SD203
-    (SD_OFFSET + 600, 13),  # SD600..SD612
-
-    (SD_OFFSET + 210, 7),   # SD210..SD216 (часы)
-    (SD_OFFSET + 519, 1),   # SD519
-    (SD_OFFSET + 523, 3),   # SD523..SD525
-]
 # ================== НАСТРОЙКИ ==================
 SERVER = r'192.168.149.238\SQLEXPRESS'
 DATABASE = 'yamid'
 USERNAME = 'klient'
 PASSWORD = '1234567'
 DRIVER = 'ODBC Driver 17 for SQL Server'
+DEVICES = [{"id": "PLC_01", "ip": "192.168.161.1", "port": 502}]
 clients = {dev["id"]: ModbusTcpClient(dev["ip"], port=dev["port"], timeout=2) for dev in DEVICES}
 conn_params = quote_plus(
     f"DRIVER={{{DRIVER}}};"
@@ -405,62 +385,7 @@ conn_params = quote_plus(
     f"PWD={PASSWORD}"
 )
 engine = create_engine(f"mssql+pyodbc:///?odbc_connect={conn_params}")
-def read_batch(device_type, start, size_or_list):
-    """
-    Универсальная функция чтения. 
-    Если size_or_list - число, читает блок.
-    Если size_or_list - список, читает конкретные адреса.
-    """
-    # Для FX5U/iQ-R используем "iQ-F", чтобы работали RD-регистры
-    p_type = "iQ-R" if device_type.startswith("RD") else "Q"
-    
-    mc = Type3E(plctype=p_type) 
-    mc.connect(IP_ADDR, PORT)
-    
-    dev = device_type
-    if dev == 'C': dev = 'CN' 
-    
-    all_data = []
-    
-    try:
-        if isinstance(size_or_list, list):
-            # Режим чтения списка конкретных адресов
-            for offset in size_or_list:
-                addr = f"{dev}{start + offset}"
-                # Читаем 1 слово для каждого адреса
-                val = mc.batchread_wordunits(addr, 1)
-                all_data.append(val[0] if val else None)
-        else:
-            # Режим чтения последовательного блока
-            chunk_limit = 480 
-            for i in range(0, size_or_list, chunk_limit):
-                current_batch = min(chunk_limit, size_or_list - i)
-                addr = f"{dev}{start + i}"
-                all_data.extend(mc.batchread_wordunits(addr, current_batch))
-    except Exception as e:
-        print(f"Ошибка на {dev}: {e}")
-    finally:
-        mc.close()
-    return all_data
 
-def read_rd_large_block(start_addr="RD24", total_size=31200):
-    # Важно: plctype="iQ-F" для поддержки RD
-    mc = Type3E(plctype="iQ-R") 
-    mc.connect(IP_ADDR, PORT)
-    
-    all_data = []
-    chunk_size = 960 
-    start_num = int(start_addr.replace("RD", ""))
-    
-    try:
-        for i in range(0, total_size, chunk_size):
-            current_batch = min(chunk_size, total_size - i)
-            addr = f"RD{start_num + i}"
-            batch_data = mc.batchread_wordunits(addr, current_batch)
-            all_data.extend(batch_data)
-    finally:
-        mc.close()
-    return all_data
 def red_slmp():
  
     SD_LIST = [0, 200, 201, 203, 600, 604, 606, 607, 608, 609, 610, 611, 612, 210, 211, 212, 213, 214, 215, 216, 519, 523, 524, 525]
@@ -608,52 +533,7 @@ def build_scada_json(data):
 
 
 # --- ОПРОС ПЛК ---
-def read_m_registers(client, m_offset, count=600):
-    """Чтение больших объемов M регистров"""
-    all_values = []
-    chunk_size = 125
-    steps = (count + chunk_size - 1) // chunk_size
-    
-    try:
-        for step in range(steps):
-            current_start = m_offset + step * chunk_size
-            end_address = min(current_start + chunk_size, m_offset + count)
-            
-            result = client.read_coils(current_start, end_address - current_start, unit=1)
-            if result.isError():
-                raise Exception(f"Ошибка чтения M регистров с адреса {current_start}: {result.message}")
-                
-            all_values.extend(result.bits[:end_address-current_start])
-        
-        return all_values
-    except Exception as e:
-        print(f"Ошибка чтения M регистров: {e}")
-        return None
-
-def read_blocks(client, blocks, unit=1):
-    result = []
-    for addr, count in blocks:
-        res = client.read_holding_registers(addr, count, unit=unit)
-        if res.isError() or not res.registers:
-            raise Exception(f"Ошибка чтения {addr}")
-        result.extend(res.registers)
-    return result
-def read_all_d_registers(client, total=8000, unit=1):
-    chunk = 125
-    result = []
-
-    for offset in range(0, total, chunk):
-        size = min(chunk, total - offset)
-        rd = client.read_holding_registers(offset, size, unit=unit)
-
-        if rd.isError():
-            raise Exception(f"Ошибка чтения блока offset={offset}, size={size}")
-
-        result.extend(rd.registers)
-
-    return result
-
-def poll_device(client_not_used, device_info):
+def poll_device():
     """
     Теперь мы игнорируем старый объект client, 
     так как red_slmp сама управляет соединениями через pymcprotocol.
@@ -682,14 +562,10 @@ def poll_device(client_not_used, device_info):
     except Exception as e:
         print(f"Ошибка высокоскоростного опроса ПЛК: {e}")
         return None
-
-
 def get_plc_data():
     results = {}
-    for dev_id, client in clients.items():
-        data = poll_device(client, {"id": dev_id})
-        if data: results[dev_id] = {"tags": build_scada_json(data)}
-        else:    results[dev_id] = None
+    data = poll_device()
+    results = {"tags": build_scada_json(data)}
     return results
 def resolve(ip):
     try:
@@ -792,27 +668,39 @@ def plc_get():
     plc_data = get_plc_data()
     return jsonify(plc_data)
 
-@app.route("/plc_X")
-def plc_X():
+@app.route("/plc_XY")
+def plc_XY():
     mc = Type3E()
     mc.connect("192.168.161.1", 5000)
+
+    # читаем X0–X42
     rx_bits = mc.batchread_bitunits("X0", 43)
 
-    # Берём имена X из PLC_TAGS
-    rx_tags = [t for t in PLC_TAGS["PLC_01"]["tags"] if t["type"] == "RX"]
+    # читаем Y0–Y42 (или сколько нужно)
+    ry_bits = mc.batchread_bitunits("Y0", 43)
 
-    result = []
+    # берём все теги PLC_01
+    tags = plc_tags["PLC_01"]["tags"]
+
+    # фильтруем X и Y
+    x_tags = [t for t in tags if t["type"] == "RX"]
+    y_tags = [t for t in tags if t["type"] == "RY"]
+
+    # формируем X
+    X = []
     for i, val in enumerate(rx_bits):
-        tag = next((t for t in rx_tags if t["addr"] == i), None)
+        tag = next((t for t in x_tags if t["addr"] == i), None)
         name = tag["name"] if tag else f"X{i}"
+        X.append({"addr": i, "val": val, "name": name})
 
-        result.append({
-            "addr": i,
-            "val": val,
-            "name": name
-        })
+    # формируем Y
+    Y = []
+    for i, val in enumerate(ry_bits):
+        tag = next((t for t in y_tags if t["addr"] == i), None)
+        name = tag["name"] if tag else f"Y{i}"
+        Y.append({"addr": i, "val": val, "name": name})
 
-    return jsonify(result)
+    return jsonify({"X": X, "Y": Y})
 
 # Новый роут — список пользователей (JSON для фронта)
 @app.route("/users")
