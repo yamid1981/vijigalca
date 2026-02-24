@@ -794,18 +794,23 @@ def plc_get():
 
 @app.route("/plc_X")
 def plc_X():
-    mc = Type3E() 
+    mc = Type3E()
     mc.connect("192.168.161.1", 5000)
     rx_bits = mc.batchread_bitunits("X0", 43)
 
-    # берём имена из полного списка PLC_01.tags
-    full_tags = PLC_01.tags  # или как у тебя хранится
-    x_tags = [t for t in full_tags if t.type == "RX"]
+    # Берём имена X из PLC_TAGS
+    rx_tags = [t for t in PLC_TAGS["PLC_01"]["tags"] if t["type"] == "RX"]
 
     result = []
     for i, val in enumerate(rx_bits):
-        name = next((t.name for t in x_tags if t.addr == i), "")
-        result.append({"addr": i, "val": val, "name": name})
+        tag = next((t for t in rx_tags if t["addr"] == i), None)
+        name = tag["name"] if tag else f"X{i}"
+
+        result.append({
+            "addr": i,
+            "val": val,
+            "name": name
+        })
 
     return jsonify(result)
 
