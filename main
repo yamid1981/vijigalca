@@ -798,11 +798,14 @@ def plc_X():
     mc.connect("192.168.161.1", 5000)
     rx_bits = mc.batchread_bitunits("X0", 43)
 
-    # Превращаем в массив объектов
-    result = [
-        {"addr": i, "val": rx_bits[i]}
-        for i in range(len(rx_bits))
-    ]
+    # берём имена из полного списка PLC_01.tags
+    full_tags = PLC_01.tags  # или как у тебя хранится
+    x_tags = [t for t in full_tags if t.type == "RX"]
+
+    result = []
+    for i, val in enumerate(rx_bits):
+        name = next((t.name for t in x_tags if t.addr == i), "")
+        result.append({"addr": i, "val": val, "name": name})
 
     return jsonify(result)
 
