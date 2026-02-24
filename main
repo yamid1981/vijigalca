@@ -1,8 +1,7 @@
 from pymodbus.client.sync import ModbusTcpClient
-import pymodbus
-print("pymodbus version:", pymodbus.__version__)  # pymodbus version: 2.5.3
 import threading
 import time
+from pymcprotocol import Type3E
 from flask import Flask, render_template, jsonify, request
 import pandas as pd
 import webbrowser
@@ -11,9 +10,11 @@ import socket
 import logging
 import warnings
 from urllib.parse import quote_plus
-from collections import defaultdict
 from datetime import datetime, timedelta
 warnings.filterwarnings("ignore", category=UserWarning, message="pandas only supports SQLAlchemy")
+IP_ADDR = "192.168.161.1"
+PORT = 5000
+MAX_WORKERS = 4 
 # Создаем глобальный кэш для данных ПЛК
 plc_cache = {
     "tags": [],
@@ -23,6 +24,7 @@ TAGS = {
 'SD': {
         0:   'Код ошибки самодиагностики',
         200: 'CPU switch status (0: RUN, 1: STOP)',
+        201: 'LED Status',
         203: 'CPU Status (b0: RUN, b2: STOP, b3: PAUSE)',
         210: 'Clock Year',
         211: 'Clock Month',
@@ -37,8 +39,14 @@ TAGS = {
         525: 'Maximum scan time (µs)',
         600: 'Memory Card Installation / Enable',
         604: 'SD memory card usage status',
-        606: 'SD card total capacity (low word)',
-        610: 'SD card free space (low word)',
+        606: 'SD memory card capacity This register stores the drive 2 storage capacity (unit: 1 K byte).(Free space value after formatting is stored.)',
+        607: 'SD memory card capacity This register stores the drive 2 storage capacity (unit: 1 K byte).(Free space value after formatting is stored.)',
+        608: 'SD memory card capacity This register stores the drive 2 storage capacity (unit: 1 K byte).(Free space value after formatting is stored.)',
+        609: 'SD memory card capacity This register stores the drive 2 storage capacity (unit: 1 K byte).(Free space value after formatting is stored.)',
+        610: 'SD memory card free space capacity This register stores the free space value in drive 2 (unit: 1 K byte). ',
+        611: 'SD memory card free space capacity This register stores the free space value in drive 2 (unit: 1 K byte). ',
+        612: 'SD memory card free space capacity This register stores the free space value in drive 2 (unit: 1 K byte). ',
+        613: 'SD memory card free space capacity This register stores the free space value in drive 2 (unit: 1 K byte). ',
     },
 'RX': {  # Входящие сигналы (Input Signals)
         0:  'X0	    Резерв',
@@ -134,74 +142,136 @@ TAGS = {
         57:	'Несоответствие  y3=0 s15=1',
     },
 'RD': {  # Регистры данных //
-0:     'Сообщение "?" ',
-1:     'Установка числа звеньев c пульта',
-2:     'D2:=D714+7;',
-3:     'D3:=D714+1;',
-4:     'D4:=C102;',   
-5:     'D5.0 запись на sd карту флаг Err/ok',
-6:     'D6.0 чтение с sd карты флаг Err/ok',
-9:     'Экран рецептов часть новая запись поле база',
-10:    'Экран рецептов часть выбрано поле база',
-20:    'Сообщения на экран 16 слов 1-ое',
-21:    'Сообщения на экран 16 слов 2-ое',
-22:    'Сообщения на экран 16 слов 3-ое',
-23:    'Сообщения на экран 16 слов 4-ое',
-24:    'Сообщения на экран 16 слов 5-ое',
-25:    'Сообщения на экран 16 слов 6-ое',
-26:    'Сообщения на экран 16 слов 7-ое',
-27:    'Сообщения на экран 16 слов 8-ое',
-28:    'Сообщения на экран 16 слов 9-ое',
-29:    'Сообщения на экран 16 слов 10-ое',
-30:    'Сообщения на экран 16 слов 11-ое',
-31:    'Сообщения на экран 16 слов 12-ое',
-32:    'Сообщения на экран 16 слов 13-ое',
-33:    'Сообщения на экран 16 слов 14-ое',
-34:    'Сообщения на экран 16 слов 15-ое',
-35:    'Сообщения на экран 16 слов 16-ое',
-40:    'Сообщения. Соответствует записям в GT Designer',
-100:   'зажечь надпись 1-36 2-41 3-требование выбрать 36/41',
-110:   'Переменная для хранения числа звеньев задней тележки',
-120:   '"Текущее значение счетчика звеньев',
-130:   'тек.знач.(1-4) режим D130:=C103;',
-140:   'тек.знач.5-ый режим D140:=C101;',
-200:   'коментарий закладчика главный экран',
-201:   'коментарий закладчика главный экран',
-202:   'коментарий закладчика главный экран',
-203:   'коментарий закладчика главный экран',
-204:   'коментарий закладчика главный экран',
-205:   'коментарий закладчика главный экран',
-206:   'коментарий закладчика главный экран',
-207:   'коментарий закладчика главный экран',
-208:   'коментарий закладчика главный экран',
-209:   'коментарий закладчика главный экран',
-210:   '2-ая строчка для выбора базы на панели',
-220:   '3-ая строчка для выбора базы на панели',
-230:   '4-ая строчка для выбора базы на панели',
-240:   '5-ая строчка для выбора базы на панели',
-250:   '6-ая строчка для выбора базы на панели',
-260:   '7-ая строчка для выбора базы на панели',
-270:   '8-ая строчка для выбора базы на панели',
-280:   '9-ая строчка для выбора базы на панели',
-290:   '10-ая строчка для выбора базы на панели',
-300:   'Для ручного ввода списка с панели подвала 1 строка база -51-',
-303:   'Для ручного ввода списка с панели подвала 2 строка база -29-',
-306:   'Для ручного ввода списка с панели подвала 3 строка база -37-',
-309:   'Для ручного ввода списка с панели подвала 4 строка база -35-',
-312:   'Для ручного ввода списка с панели подвала 5 строка база -65-',
-315:   'Для ручного ввода списка с панели подвала 6 строка база -66-',
-318:   'Для ручного ввода списка с панели подвала 7 строка база -03-',
-321:   'Для ручного ввода списка с панели подвала 8 строка база -18-',
-324:   'Для ручного ввода списка с панели подвала 9 строка база -20-',
-327:   'Для ручного ввода списка с панели подвала 10 строка база -21-',
-330:   'Для ручного ввода списка с панели подвала 11 строка база -22-',
-410:   'Поле 1 пульта выбора БАЗ',
-714:   'количество звеньев для открытия останова',
-900:   'условие сброса счета задается с панели',
-1000:  'Режим работы счетчика',
-1010:  'Вывод сообщения на экран при откате',
-4000:  'количество звеньев для перезапуска  счета',
-
+0:      'Сообщение "?" ',
+1:      'Установка числа звеньев c пульта',
+2:      'D2:=D714+7;',
+3:      'D3:=D714+1;',
+4:      'D4:=C102;',   
+5:      'D5.0 запись на sd карту флаг Err/ok',
+6:      'D6.0 чтение с sd карты флаг Err/ok',
+9:      'Экран рецептов часть новая запись поле база',
+10:     'Экран рецептов часть выбрано поле база',
+20:     'Сообщения на экран 16 слов 1-ое',
+21:     'Сообщения на экран 16 слов 2-ое',
+22:     'Сообщения на экран 16 слов 3-ое',
+23:     'Сообщения на экран 16 слов 4-ое',
+24:     'Сообщения на экран 16 слов 5-ое',
+25:     'Сообщения на экран 16 слов 6-ое',
+26:     'Сообщения на экран 16 слов 7-ое',
+27:     'Сообщения на экран 16 слов 8-ое',
+28:     'Сообщения на экран 16 слов 9-ое',
+29:     'Сообщения на экран 16 слов 10-ое',
+30:     'Сообщения на экран 16 слов 11-ое',
+31:     'Сообщения на экран 16 слов 12-ое',
+32:     'Сообщения на экран 16 слов 13-ое',
+33:     'Сообщения на экран 16 слов 14-ое',
+34:     'Сообщения на экран 16 слов 15-ое',
+35:     'Сообщения на экран 16 слов 16-ое',
+40:     'Сообщения. Соответствует записям в GT Designer',
+100:    'зажечь надпись 1-36 2-41 3-требование выбрать 36/41',
+110:    'Переменная для хранения числа звеньев задней тележки',
+120:    '"Текущее значение счетчика звеньев',
+130:    'тек.знач.(1-4) режим D130:=C103;',
+140:    'тек.знач.5-ый режим D140:=C101;',
+200:    'коментарий закладчика формирующаяся база',
+201:    'коментарий закладчика главный экран закладка 1',
+202:    'коментарий закладчика главный экран закладка 2',
+203:    'коментарий закладчика главный экран закладка 3',
+204:    'коментарий закладчика главный экран закладка 4',
+205:    'коментарий закладчика главный экран закладка 5',
+206:    'коментарий закладчика главный экран закладка 6',
+207:    'коментарий закладчика главный экран закладка 7',
+208:    'коментарий закладчика главный экран закладка 8',
+209:    'коментарий закладчика главный экран закладка 9',
+210:    'коментарий закладчика главный экран закладка 10',
+211:    'коментарий закладчика главный экран закладка 11',
+300:    'Для ручного ввода списка с панели подвала 1 строка база -51-',
+303:    'Для ручного ввода списка с панели подвала 2 строка база -29-',
+306:    'Для ручного ввода списка с панели подвала 3 строка база -37-',
+309:    'Для ручного ввода списка с панели подвала 4 строка база -35-',
+312:    'Для ручного ввода списка с панели подвала 5 строка база -65-',
+315:    'Для ручного ввода списка с панели подвала 6 строка база -66-',
+318:    'Для ручного ввода списка с панели подвала 7 строка база -03-',
+321:    'Для ручного ввода списка с панели подвала 8 строка база -18-',
+324:    'Для ручного ввода списка с панели подвала 9 строка база -20-',
+327:    'Для ручного ввода списка с панели подвала 10 строка база -21-',
+330:    'Для ручного ввода списка с панели подвала 11 строка база -22-',
+400:    'УСТАНОВИТЬ ЧИСЛО ЗВЕНЬЕВ БАЗ D400:=11',
+401:    'УСТАНОВИТЬ ЧИСЛО ЗВЕНЬЕВ БАЗ D401:=12',
+402:    'УСТАНОВИТЬ ЧИСЛО ЗВЕНЬЕВ БАЗ D402:=13',
+403:    'УСТАНОВИТЬ ЧИСЛО ЗВЕНЬЕВ БАЗ D403:=14',
+404:    'УСТАНОВИТЬ ЧИСЛО ЗВЕНЬЕВ БАЗ D404:=15',
+405:    'УСТАНОВИТЬ ЧИСЛО ЗВЕНЬЕВ БАЗ D405:=16',
+406:    'УСТАНОВИТЬ ЧИСЛО ЗВЕНЬЕВ БАЗ D406:=17',
+407:    'УСТАНОВИТЬ ЧИСЛО ЗВЕНЬЕВ БАЗ D407:=18',
+408:    'УСТАНОВИТЬ ЧИСЛО ЗВЕНЬЕВ БАЗ D408:=20',
+409:    'УСТАНОВИТЬ ЧИСЛО ЗВЕНЬЕВ БАЗ D409:=21',
+410:    'УСТАНОВИТЬ ЧИСЛО ЗВЕНЬЕВ БАЗ D410:=22',
+430:    'УМНОЖИТЬ НА 320 ДЛЯ КОЛОНКИ ДЛИНА D430:=D400*320',
+431:    'УМНОЖИТЬ НА 320 ДЛЯ КОЛОНКИ ДЛИНА D431:=D401*320',
+432:    'УМНОЖИТЬ НА 320 ДЛЯ КОЛОНКИ ДЛИНА D432:=D402*320',
+433:    'УМНОЖИТЬ НА 320 ДЛЯ КОЛОНКИ ДЛИНА D433:=D403*320',
+434:    'УМНОЖИТЬ НА 320 ДЛЯ КОЛОНКИ ДЛИНА D434:=D404*320',
+435:    'УМНОЖИТЬ НА 320 ДЛЯ КОЛОНКИ ДЛИНА D435:=D405*320',
+436:    'УМНОЖИТЬ НА 320 ДЛЯ КОЛОНКИ ДЛИНА D436:=D406*320',
+437:    'УМНОЖИТЬ НА 320 ДЛЯ КОЛОНКИ ДЛИНА D437:=D407*320',
+438:    'УМНОЖИТЬ НА 320 ДЛЯ КОЛОНКИ ДЛИНА D438:=D408*320',
+439:    'УМНОЖИТЬ НА 320 ДЛЯ КОЛОНКИ ДЛИНА D439:=D409*320',
+440:    'УМНОЖИТЬ НА 320 ДЛЯ КОЛОНКИ ДЛИНА D440:=D410*320',
+441:    'УМНОЖИТЬ НА 320 ДЛЯ КОЛОНКИ ДЛИНА D441:=D411*320',
+500:    'добавить к модели данные базы',
+501:    'добавить к модели данные базы',
+502:    'добавить к модели данные базы',
+505:    'по включению питания определяем это новый день?',
+600:    'добавить к модели данные базы ',
+700:    'Формирующеяся модель машины',
+701:    'Формирующеяся модель машины',
+702:    'Формирующеяся модель машины',
+703:    'Формирующеяся модель машины',
+704:    'Формирующеяся модель машины',
+705:    'Формирующеяся модель машины',
+706:    'Формирующеяся модель машины',
+707:    'Формирующеяся модель машины',
+708:    'Формирующеяся модель машины',
+709:    'Формирующеяся модель машины',
+710:    'Формирующеяся модель машины',
+711:    'Формирующеяся название базы',
+712:    'Формирующеяся название базы',
+713:    'Формирующеяся название базы',
+714:    'Формирующеяся количество звеньев для открытия останова',
+715:    'Формирующеяся модель длинна',
+990:    'ЗАНЕСЕНИЯ С АРХИВА В СТРОЧКУ',
+991:    'ЗАНЕСЕНИЯ С АРХИВА В СТРОЧКУ',
+992:    'ЗАНЕСЕНИЯ С АРХИВА В СТРОЧКУ',
+993:    'ЗАНЕСЕНИЯ С АРХИВА В СТРОЧКУ',
+994:    'ЗАНЕСЕНИЯ С АРХИВА В СТРОЧКУ',
+995:    'ЗАНЕСЕНИЯ С АРХИВА В СТРОЧКУ',
+996:    'ЗАНЕСЕНИЯ С АРХИВА В СТРОЧКУ',
+997:    'ЗАНЕСЕНИЯ С АРХИВА В СТРОЧКУ',
+998:    'ЗАНЕСЕНИЯ С АРХИВА В СТРОЧКУ',
+999:    'ЗАНЕСЕНИЯ С АРХИВА В СТРОЧКУ',
+1000:   'Режим работы счетчика int',
+1001:   'Выбраный режим работы счетчика(ов) text',
+1002:   'Выбраный режим работы счетчика(ов) text',
+1003:   'Выбраный режим работы счетчика(ов) text',
+1004:   'Выбраный режим работы счетчика(ов) text',
+1005:   'Выбраный режим работы счетчика(ов) text',
+1010:   'Вывод сообщения на экран при откате',
+1030:   'отслеживание изменения D1030 для исключения ошибочного ввода числа звеньев при манипуляциях c архивом',
+2000:   '1-ая строка задания модель',
+2011:   '1-ая строка задания база',
+2014:   '1-ая строка задания число звеньев',
+2015:   '1-ая строка задания число длина',
+2016:   '2-ая строка задания модель',
+2027:   '2-ая строка задания база',
+2030:   '2-ая строка задания число звеньев',
+2031:   '2-ая строка задания число длина',
+3000:   'содержит номер строки для записи задания основная',
+3001:   'содержит номер строки для записи задания доп. из экрана схема',
+3020:   '3020...3028 данные с рецептов',
+3030:   'кол-во звеньев из рецепта',
+4000:   'количество звеньев для перезапуска  счета',
+5000:   'дребезг х24/х25',
     },
 'RM': {  # Регистры промежуточных состояний (1 битные МАРКЕРА)
         0:  'ЗАНЕСЕНИЯ С АРХИВА В СТРОЧКУ GTSOFT',
@@ -310,13 +380,10 @@ L_OFFSET = 22528
 M_OFFSET = 8192
 SD_OFFSET = 20480 #holding
 DEVICES = [{"id": "PLC_01", "ip": "192.168.161.1", "port": 502}]
-RD_RANGES = [
-    (0,   100),  
-]
+RD_RANGES = [    (0,   100),  ]
 RSD_RANGES = [
     (SD_OFFSET + 0,   1),   # SD0
-    (SD_OFFSET + 200, 1),   # SD200
-    (SD_OFFSET + 203, 1),   # SD203
+    (SD_OFFSET + 200, 4),   # SD200..SD203
     (SD_OFFSET + 600, 13),  # SD600..SD612
 
     (SD_OFFSET + 210, 7),   # SD210..SD216 (часы)
@@ -338,6 +405,128 @@ conn_params = quote_plus(
     f"PWD={PASSWORD}"
 )
 engine = create_engine(f"mssql+pyodbc:///?odbc_connect={conn_params}")
+def read_batch(device_type, start, size_or_list):
+    """
+    Универсальная функция чтения. 
+    Если size_or_list - число, читает блок.
+    Если size_or_list - список, читает конкретные адреса.
+    """
+    # Для FX5U/iQ-R используем "iQ-F", чтобы работали RD-регистры
+    p_type = "iQ-R" if device_type.startswith("RD") else "Q"
+    
+    mc = Type3E(plctype=p_type) 
+    mc.connect(IP_ADDR, PORT)
+    
+    dev = device_type
+    if dev == 'C': dev = 'CN' 
+    
+    all_data = []
+    
+    try:
+        if isinstance(size_or_list, list):
+            # Режим чтения списка конкретных адресов
+            for offset in size_or_list:
+                addr = f"{dev}{start + offset}"
+                # Читаем 1 слово для каждого адреса
+                val = mc.batchread_wordunits(addr, 1)
+                all_data.append(val[0] if val else None)
+        else:
+            # Режим чтения последовательного блока
+            chunk_limit = 480 
+            for i in range(0, size_or_list, chunk_limit):
+                current_batch = min(chunk_limit, size_or_list - i)
+                addr = f"{dev}{start + i}"
+                all_data.extend(mc.batchread_wordunits(addr, current_batch))
+    except Exception as e:
+        print(f"Ошибка на {dev}: {e}")
+    finally:
+        mc.close()
+    return all_data
+
+def read_rd_large_block(start_addr="RD24", total_size=31200):
+    # Важно: plctype="iQ-F" для поддержки RD
+    mc = Type3E(plctype="iQ-R") 
+    mc.connect(IP_ADDR, PORT)
+    
+    all_data = []
+    chunk_size = 960 
+    start_num = int(start_addr.replace("RD", ""))
+    
+    try:
+        for i in range(0, total_size, chunk_size):
+            current_batch = min(chunk_size, total_size - i)
+            addr = f"RD{start_num + i}"
+            batch_data = mc.batchread_wordunits(addr, current_batch)
+            all_data.extend(batch_data)
+    finally:
+        mc.close()
+    return all_data
+def red_slmp():
+ 
+    SD_LIST = [0, 200, 201, 203, 600, 604, 606, 607, 608, 609, 610, 611, 612, 210, 211, 212, 213, 214, 215, 216, 519, 523, 524, 525]
+    mc = Type3E() 
+    mc.connect("192.168.161.1", 5000)
+
+    # Увеличиваем размер чанка до максимально стабильного для iQ-F/Q
+    CHUNK_SIZE = 450 
+    TOTAL_WORDS_D = 8000
+    TOTAL_WORDS_RD = 31200
+
+    all_data_d = []
+    all_data_rd = []
+
+    try:
+        start_time = time.perf_counter()
+
+        # Чтение D (теперь меньше итераций)
+        for i in range(0, TOTAL_WORDS_D, CHUNK_SIZE):
+            size = min(CHUNK_SIZE, TOTAL_WORDS_D - i)
+            # Сразу переводим в unsigned при чтении, если нужно
+            chunk = [v & 0xFFFF for v in mc.batchread_wordunits(f"D{i}", size)]
+            all_data_d.extend(chunk)
+
+        # Чтение R
+        for i in range(0, TOTAL_WORDS_RD, CHUNK_SIZE):
+            size = min(CHUNK_SIZE, TOTAL_WORDS_RD - i)
+            chunk = [v & 0xFFFF for v in mc.batchread_wordunits(f"R{i}", size)]
+            all_data_rd.extend(chunk)
+
+        # Биты читаем пачками (можно тоже объединять, если адреса рядом)
+        rx_bits = mc.batchread_bitunits("X0", 43)
+        ry_bits = mc.batchread_bitunits("Y0", 6)
+        rl_bits = mc.batchread_bitunits("L0", 58)
+        rm_bits = mc.batchread_bitunits("M0", 528)
+        rc_word = mc.batchread_wordunits("CN30", 111) 
+
+        # SD чтение
+        max_sd = max(SD_LIST)
+        sd_range = mc.batchread_wordunits("SD0", max_sd + 1)
+        rsd_values = {addr: (sd_range[addr] & 0xFFFF) for addr in SD_LIST}
+
+        duration = time.perf_counter() - start_time
+
+        # Печатаем только статистику (печать данных тормозит цикл)
+
+        results = {
+            "X": [bool(b) for b in rx_bits], 
+            "Y": [bool(b) for b in ry_bits],
+            "C": rc_word,
+            "L": [bool(b) for b in rl_bits],
+            "M": [bool(b) for b in rm_bits],
+            "SD": rsd_values, # Используйте словарь с конкретными SD, а не весь срез sd_range
+            "D": all_data_d,
+            "RD": all_data_rd
+        }
+
+
+        # Печатаем статистику в консоль для контроля
+        print(f"Опрос завершен за {duration:.4f} сек.")
+
+        return results
+    except Exception as e:
+        print(f"Ошибка: {e}")
+    finally:
+        mc.close()
 
 # ==========================
 #  SCADA JSON MAPPER
@@ -388,55 +577,15 @@ def map_rm(bits):
 def map_rd(values):
     return [make_tag("RD", i, values[i]) for i in range(len(values))]
 
+# ---------- R ----------
+def map_frd(values):
+    return [make_tag("FRD", i, values[i]) for i in range(len(values))]
 
-# ---------- SD (особый, с разрывами адресов) ----------
+# ---------- SD----------
 def map_sd(values):
-    # соответствие: индекс в массиве → реальный SD‑адрес
-    mapping = []
+    # values здесь — это словарь {0: val, 200: val, ...}
+    return [make_tag("SD", addr, val) for addr, val in values.items()]
 
-    # SD0
-    mapping.append((0, 0))
-
-    # SD200, SD203
-    mapping.append((1, 200))
-    mapping.append((2, 203))
-
-    # SD600..SD612 (13 шт)
-    for i in range(13):
-        mapping.append((3 + i, 600 + i))
-
-    # SD210..SD216 (7 шт)
-    base = 3 + 13
-    for i in range(7):
-        mapping.append((base + i, 210 + i))
-
-    # SD519
-    mapping.append((base + 7, 519))
-
-    # SD523..SD525 (3 шт)
-    for i in range(3):
-        mapping.append((base + 8 + i, 523 + i))
-
-    tags = []
-    for list_idx, plc_addr in mapping:
-        if list_idx < len(values):
-            tags.append(make_tag("SD", plc_addr, values[list_idx]))
-
-    return tags
-def extract_plc_datetime(tags):
-    sd = {t["addr"]: t["val"] for t in tags if t["type"] == "SD"}
-
-    try:
-        return datetime(
-            year=sd.get(210, 2000),
-            month=sd.get(211, 1),
-            day=sd.get(212, 1),
-            hour=sd.get(213, 0),
-            minute=sd.get(214, 0),
-            second=sd.get(215, 0)
-        )
-    except:
-        return None
 # ---------- ЕДИНЫЙ SCADA JSON ----------
 def build_scada_json(data):
     # Теги, которые нужно фильтровать (только с именами)
@@ -446,16 +595,16 @@ def build_scada_json(data):
         map_rc(data[2]) +
         map_rl(data[3]) +
         map_rm(data[5]) +
-        map_sd(data[6])
-    )
+        map_sd(data[6]) )
     
     # Оставляем только те, где name не пустое
     tags_with_names = [tag for tag in filtered_parts if tag["name"]]
     
     # Регистры D добавляем целиком без фильтрации
     d_registers = map_rd(data[4])
-    
-    return tags_with_names + d_registers
+     # Регистры R добавляем целиком без фильтрации
+    r_registers = map_frd(data[7])   
+    return tags_with_names + d_registers + r_registers
 
 
 # --- ОПРОС ПЛК ---
@@ -504,37 +653,36 @@ def read_all_d_registers(client, total=8000, unit=1):
 
     return result
 
-def poll_device(client, device_info):
+def poll_device(client_not_used, device_info):
+    """
+    Теперь мы игнорируем старый объект client, 
+    так как red_slmp сама управляет соединениями через pymcprotocol.
+    """
     try:
-        if not client.connect():
+        # Вызываем вашу новую быструю функцию
+        # Она возвращает словарь: {"X": [...], "Y": [...], "C": [...], ...}
+        data = red_slmp()
+        
+        if not data:
             return None
 
-        rx = client.read_discrete_inputs(0, 64, unit=1)
-        if rx.isError(): raise Exception("Ошибка чтения RX")
-
-        ry = client.read_coils(0, 5, unit=1)
-        if ry.isError(): raise Exception("Ошибка чтения RY")
-
-        rc = client.read_holding_registers(C_OFFSET + 30, 110, unit=1)
-        if rc.isError(): raise Exception("Ошибка чтения RC")
-
-        rl = client.read_coils(L_OFFSET, 64, unit=1)
-        if rl.isError(): raise Exception("Ошибка чтения RL")
-
-        rd = read_all_d_registers(client) #8000 регистров
-
-        rm_bits = read_m_registers(client, M_OFFSET, 528)
-        if rm_bits is None: raise Exception("Ошибка чтения RM")
-        
-        rsd = read_blocks(client, RSD_RANGES)
-       
-        return [rx.bits, ry.bits, rc.registers, rl.bits, rd, rm_bits, rsd]
+        # Формируем список в том же порядке, в котором его ждет build_scada_json:
+        # [rx.bits, ry.bits, rc.registers, rl.bits, rd, rm_bits, rsd]
+        return [
+            data["X"],  
+            data["Y"],  
+            data["C"], 
+            data["L"],  
+            data["D"], 
+            data["M"],  
+            data["SD"], 
+            data["RD"]
+        ]
        
     except Exception as e:
-        print(f"Ошибка опроса ПЛК: {e}")
+        print(f"Ошибка высокоскоростного опроса ПЛК: {e}")
         return None
-    finally:
-        client.close()
+
 
 def get_plc_data():
     results = {}
@@ -644,6 +792,19 @@ def plc_get():
     plc_data = get_plc_data()
     return jsonify(plc_data)
 
+@app.route("/plc_X")
+def plc_X():
+    mc = Type3E() 
+    mc.connect("192.168.161.1", 5000)
+    rx_bits = mc.batchread_bitunits("X0", 43)
+
+    # Превращаем в массив объектов
+    result = [
+        {"addr": i, "val": rx_bits[i]}
+        for i in range(len(rx_bits))
+    ]
+
+    return jsonify(result)
 
 # Новый роут — список пользователей (JSON для фронта)
 @app.route("/users")
