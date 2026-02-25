@@ -424,6 +424,7 @@
         </div>
     </div>
     <script>
+        let xyRendered = false;
         const STAGES = [
             "ПОДВАЛ",
             "ЗАКЛАДКА",
@@ -456,25 +457,26 @@
             "СЪЕЗД С КОНВЕЙЕРА"
         ];
         var _sys_time = "";
-        let xInterval = null;
+        let xyInterval = null;
 
-        // Опрашиваем каждые полсекунды
         document.getElementById("poll-x-checkbox").addEventListener("change", function () {
             if (this.checked) {
-                xInterval = setInterval(plc_xy, 500);
-                plc_xy(); // Запускаем сразу же после включения чекбокса
+                xyInterval = setInterval(plc_xy, 200);
+                plc_xy();
             } else {
-                clearInterval(xInterval);
-                xInterval = null;
+                clearInterval(xyInterval);
+                xyInterval = null;
             }
         });
 
         // Автоматическое отключение опроса и снятие галочки при скрытие страницы
         document.addEventListener("visibilitychange", () => {
-            if (document.hidden && xInterval !== null) { // Страница скрыта?
-                clearInterval(xInterval);                 // Останавливаем опрос
-                xInterval = null;
-                document.getElementById("poll-x-checkbox").checked = false; // Убираем галочку
+            const checkbox = document.getElementById("poll-x-checkbox");
+
+            if (document.hidden) {
+                checkbox.checked = false;
+                clearInterval(xyInterval);
+                xyInterval = null;
             }
         });
 
@@ -687,6 +689,8 @@
         }
         // Функция визуализации (отрисовка контейнеров)
         function renderBitContainers(data) {
+            if (xyRendered) return;
+            xyRendered = true;
             const rx = data.filter(i => i.type === 'X');
             const ry = data.filter(i => i.type === 'Y');
 
@@ -719,6 +723,7 @@
 
         async function update() {
             try {
+                if (!document.getElementById("poll-x-checkbox").checked) { renderBitContainers(data); } // перерисовка X/Y
                 _sys_time = "";
                 const res = await fetch('/plc_get');
                 const data = await res.json();
@@ -1009,9 +1014,7 @@
                     const el = document.querySelector(
                         `.bit-box[data-type="${bit.type}"][data-addr="${bit.addr_dec}"]`
                     );
-                    if (!el) continue;
-
-                    el.classList.toggle("active", !!bit.val);
+                    if (el) el.classList.toggle("active", !!bit.val);
                 }
 
 
@@ -1036,7 +1039,7 @@
             }
         }
         document.getElementById('update-button').addEventListener('click', update);
-        setInterval(update,10000);
+        setInterval(update, 10000);
         update();
     </script>
 </body>
