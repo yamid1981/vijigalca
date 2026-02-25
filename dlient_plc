@@ -183,6 +183,62 @@
         .frd-table tr:hover {
             background: #334155;
         }
+
+        .monitoring-block {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            background-color: #fafafa;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, .1);
+            margin-bottom: 20px;
+        }
+
+        .indicator-circle {
+            width: 50px;
+            height: 50px;
+            line-height: 50px;
+            text-align: center;
+            border-radius: 50%;
+            background-color: grey;
+            color: white;
+            font-weight: bold;
+            transition: all 0.3s ease-in-out;
+        }
+
+        .indicator-circle.active {
+            background-color: green;
+        }
+
+        .motion-indicator .indicator-circle.active {
+            background-color: yellowgreen;
+        }
+
+        .motion-indicator .indicator-circle.inactive {
+            background-color: red;
+        }
+
+        #counter-D102 {
+            font-weight: bold;
+            color: navy;
+            font-size: 1.5em;
+        }
+
+        #btn-reset-D4000 {
+            cursor: pointer;
+            background-color: orange;
+            color: black;
+            font-weight: bold;
+            padding: 5px 10px;
+            border-radius: 5px;
+            transition: all 0.3s ease-in-out;
+        }
+
+        #btn-reset-D4000:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 
@@ -190,7 +246,8 @@
     <div id="status-bar">Связь устанавливается...</div>
     <div id="plc_time" style="padding-block: 1em;"></div>
     <button id="update-button"
-        style="background-color: #22c55e; color: white; padding: 10px 20px; border-radius: 6px; cursor: pointer;">Обновить ВСЕ
+        style="background-color: #22c55e; color: white; padding: 10px 20px; border-radius: 6px; cursor: pointer;">Обновить
+        ВСЕ
         данные</button>
     <!-- X -->
     <div class="main-container">
@@ -201,6 +258,30 @@
                 <input type="checkbox" id="poll-x-checkbox">
                 Опрос входов X Online
             </label>
+        </div>
+        <div class="card" style="display: grid;">
+            <h3>Мониторинг цепи:</h3>
+
+            <div class="sensor-indicators">
+                <p>Датчики наличия звена:</p>
+                <div id="X24" class="indicator-circle">X24</div>
+                <div id="X25" class="indicator-circle">X25</div>
+            </div>
+
+            <div class="motion-indicator">
+                <p>Движение цепи:</p>
+                <div id="X22" class="indicator-circle">X22</div>
+            </div>
+
+            <div class="counter-indicator">
+                <p>Количество звеньев:</p>
+                <div id="C102">--</div>
+            </div>
+
+            <div class="reset-indicator">
+                <p>Перезапуск:</p>
+                <div id="D4000">--</div>
+            </div>
         </div>
         <!-- Y -->
         <div class="card">
@@ -314,25 +395,26 @@
         var _sys_time = "";
         let xInterval = null;
 
+        // Опрашиваем каждые полсекунды
         document.getElementById("poll-x-checkbox").addEventListener("change", function () {
             if (this.checked) {
-                xInterval = setInterval(plc_x, 500);
-                plc_x();
+                xInterval = setInterval(plc_xy, 500);
+                plc_xy(); // Запускаем сразу же после включения чекбокса
             } else {
                 clearInterval(xInterval);
                 xInterval = null;
             }
         });
 
+        // Автоматическое отключение опроса и снятие галочки при скрытие страницы
         document.addEventListener("visibilitychange", () => {
-            const checkbox = document.getElementById("poll-x-checkbox");
-
-            if (document.hidden) {
-                if (xInterval) clearInterval(xInterval);
+            if (document.hidden && xInterval !== null) { // Страница скрыта?
+                clearInterval(xInterval);                 // Останавливаем опрос
                 xInterval = null;
-                checkbox.checked = false; // 🔥 снимаем галочку
+                document.getElementById("poll-x-checkbox").checked = false; // Убираем галочку
             }
         });
+
         function readText(map, start, end) {
             let text = "";
             for (let addr = start; addr <= end; addr++) {
@@ -540,31 +622,80 @@
                 table.appendChild(row);
             });
         }
-        async function plc_x() {
-            const res = await fetch('/plc_X');
-            const data = await res.json();
+        // Функция визуализации (отрисовка контейнеров)
+        function renderBitContainers(data) {
+            const rx = data.filter(i => i.type === 'X');
+            const ry = data.filter(i => i.type === 'Y');
 
-            // если пришли все нули — игнорируем
-            const sum = data.reduce((a, b) => a + b.val, 0);
-            if (sum === 0) {
-                console.warn("Игнорируем пустой пакет X");
-                return;
-            }
+            // Отрисовка X (Входы)
+            document.getElementById('rx-container').innerHTML = rx.map(item => {
+                const octName = `X${item.addr}`; // addr уже "0", "10" и т.д.
+                return `
+<div class="bit-box ${item.val ? 'active' : ''}" 
+     data-type="X" 
+     data-addr="${item.addr}" 
+     title="${octName}">
+    <b>${octName}</b><br>
+    <span style="opacity:0.6">${item.val ? 'ON' : 'OFF'}</span>
+</div>`;
+            }).join('');
 
-            // обновляем визуализацию
-            for (const bit of data) {
-                const el = document.querySelector(`.bit-box[data-addr="${bit.addr}"]`);
-                if (!el) continue;
-
-                if (bit.val) el.classList.add("active");
-                else el.classList.remove("active");
-            }
-
-            const x24 = data.find(x => x.addr === 24)?.val;
-            const x25 = data.find(x => x.addr === 25)?.val;
-
-            console.log("X24 =", x24, "X25 =", x25);
+            // Отрисовка Y (Выходы)
+            document.getElementById('ry-container').innerHTML = ry.map(item => {
+                const octName = `Y${item.addr}`;
+                return `
+<div class="bit-box ${item.val ? 'active' : ''}" 
+     data-type="Y" 
+     data-addr="${item.addr}" 
+     title="${octName}">
+    <b>${octName}</b><br>
+    <span style="opacity:0.6">${item.val ? 'ON' : 'OFF'}</span>
+</div>`;
+            }).join('');
         }
+
+        // Обработчик опроса данных из JSON
+        async function plc_xy() {
+            try {
+                const res = await fetch('/plc_XY');
+                const data = await res.json();
+
+                if (!Array.isArray(data)) return;
+
+                // Получаем нужные данные
+                const x24 = data.find(x => x.type === "X" && x.addr === "30")?.val;
+                const x25 = data.find(x => x.type === "X" && x.addr === "31")?.val;
+                const motion = data.find(x => x.type === "X" && x.addr === "26")?.val;
+                const count = data.find(x => x.type === "C" && x.addr === "102")?.val;
+                const resetValue = data.find(x => x.type === "D" && x.addr === "4000")?.val;
+
+                // Обновляем состояние сенсоров
+                if (x24) { document.getElementById('X24').classList.add('active'); }
+                else { document.getElementById('X24').classList.remove('active'); }
+                if (x25) { document.getElementById('X25').classList.add('active'); }
+                else { document.getElementById('X25').classList.remove('active'); }
+
+                // Движение цепи
+                if (motion) {
+                    document.getElementById('motion-X22').classList.add('active');
+                    document.getElementById('motion-X22').classList.remove('inactive');
+                }
+                else {
+                    document.getElementById('X22').classList.add('inactive');
+                    document.getElementById('X22').classList.remove('active');
+                }
+
+                // Количество звеньев
+                document.getElementById('C102').textContent = count ?? '--';
+
+                // Перезапуск
+                document.getElementById('D4000').textContent = count ?? '--';
+
+            } catch (e) {
+                console.error("Ошибка опроса XY:", e);
+            }
+        }
+
         async function update() {
             try {
                 _sys_time = "";
