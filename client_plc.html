@@ -303,7 +303,7 @@
             <h3 class="card-title">
                 Мониторинг цепи конвейера <span class="emoji">🔗⚡</span>
                 <label style="display:flex; align-items:center; gap:8px; margin:10px 0;">
-                    <input type="checkbox" id="poll-x-checkbox">
+                    <input type="checkbox" id="poll-x-checkbox" checked>
                     Опрос Online 500мс
                 </label>
             </h3>
@@ -994,7 +994,7 @@
                 console.log("X24", x24, "X25", x25, "X22", x22, "c102", c102, "d4000", d4000)
                 if (x22) document.getElementById('_X22').textContent = "ЦЕПЬ ОСТАНОВЛЕНА";
                 else document.getElementById('_X22').textContent = "ЦЕПЬ ДВИЖЕТСЯ";
-                document.getElementById('_X22').classList.toggle("active", !22);
+                document.getElementById('_X22').classList.toggle("active", !x22);
                 document.getElementById('_X24').classList.toggle("active", !x24);
                 document.getElementById('_X25').classList.toggle("active", !x25);
                 // 2. Массовое обновление визуализации через ID
@@ -1025,6 +1025,19 @@
 
         document.getElementById('update-button').addEventListener('click', update_all);
         update();
+
+        // Пример логики в скрипте:
+const pollCheckbox = document.getElementById('poll-x-checkbox');
+
+function startPolling() {
+    if (pollCheckbox.checked) {
+        // твой код запуска setInterval
+        console.log("Опрос запущен по умолчанию");
+    }
+}
+
+// Вызываем при загрузке страницы
+startPolling();
     </script>
 </body>
 
