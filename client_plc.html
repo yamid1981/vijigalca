@@ -298,48 +298,39 @@
         <div class="card">
             <h3>Входы <span>(X)</span></h3>
             <div id="rx-container" class="bits-grid"></div>
-            <label style="display:flex; align-items:center; gap:8px; margin:10px 0;">
-                <input type="checkbox" id="poll-x-checkbox">
-                Опрос входов X Online
-            </label>
         </div>
         <div class="card conveyor-card">
             <h3 class="card-title">
                 Мониторинг цепи конвейера <span class="emoji">🔗⚡</span>
+                <label style="display:flex; align-items:center; gap:8px; margin:10px 0;">
+                    <input type="checkbox" id="poll-x-checkbox">
+                    Опрос Online 500мс
+                </label>
             </h3>
 
             <div class="conveyor-grid">
 
-                <div class="sensor-block">
-                    <div class="indicator-circle" id="X24">X24</div>
-                    <div class="indicator-label">Начало звена (A)</div>
+                <div class="sensor-block" style="margin-top: 2em;">
+                    <div class="indicator-circle" id="_X25">X25</div>
+                    <div class="indicator-label">Начало звена</div>
                 </div>
 
-                <div class="sensor-block">
-                    <div class="indicator-circle" id="X25">X25</div>
-                    <div class="indicator-label">Конец звена (B)</div>
+                <div class="sensor-block" style="margin-top: 2em;">
+                    <div class="indicator-circle" id="_X24">X24</div>
+                    <div class="indicator-label">Конец звена</div>
                 </div>
 
-                <div class="sensor-block">
-                    <div class="indicator-circle" id="X22">X22</div>
-                    <div class="indicator-label">Цепь START/STOP</div>
+                <div class="sensor-block" style="margin-top: 2em;">
+                    <div class="indicator-circle">X22</div>
+                    <div class="indicator-label" id="_X22">ЦЕПЬ</div>
                 </div>
 
                 <div class="sensor-block wide">
                     <div class="big-value" id="C102">--</div>
-                    <div class="indicator-label">Звеньев (heartbeat)</div>
-                </div>
+                    <div class="indicator-label">Текущее звено</div>
 
-                <div class="sensor-block">
                     <div class="medium-value" id="D4000">--</div>
                     <div class="indicator-label">Перезапуск</div>
-                </div>
-
-                <div class="sensor-block">
-                    <div class="direction-indicator" id="chain-motion">
-                        <span id="direction-arrow">↔</span>
-                    </div>
-                    <div class="indicator-label">Направление</div>
                 </div>
 
             </div>
@@ -461,7 +452,7 @@
 
         document.getElementById("poll-x-checkbox").addEventListener("change", function () {
             if (this.checked) {
-                xyInterval = setInterval(plc_xy, 200);
+                xyInterval = setInterval(plc_xy, 500);
                 plc_xy();
             } else {
                 clearInterval(xyInterval);
@@ -720,10 +711,11 @@
 </div>`;
             }).join('');
         }
-
+        var pereresovka = false;
         async function update() {
             try {
-                if (!document.getElementById("poll-x-checkbox").checked) { renderBitContainers(data); } // перерисовка X/Y
+                if (pereresovka) return;
+                pereresovka = true;
                 _sys_time = "";
                 const res = await fetch('/plc_get');
                 const data = await res.json();
@@ -744,7 +736,8 @@
                     let oct = 'X' + toOctal(item.addr);
                     let fullName = item.name || oct;
                     return `
-        <div class="bit-box ${item.val ? 'active' : ''}"
+        <div id="${oct}" 
+             class="bit-box ${item.val ? 'active' : ''}"
              data-addr="${item.addr}"
              title="${fullName}">
             <b>${item.name ? item.name.substring(0, 10) + '..' : oct}</b><br>
@@ -752,29 +745,20 @@
         </div>`;
                 }).join('');
 
-                if (!window.rxInitialized) {
-                    document.getElementById('rx-container').innerHTML = rx.map(item => {
-                        let oct = 'X' + toOctal(item.addr);
-                        return `
-            <div class="bit-box ${item.val ? 'active' : ''}"
-                 data-addr="${item.addr}">
-                <b>${oct}</b><br>
-                <span style="opacity:0.6">${oct}</span>
-            </div>`;
-                    }).join('');
-
-                    window.rxInitialized = true;
-                }
-
                 // RY визуализация
                 document.getElementById('ry-container').innerHTML = ry.map(item => {
                     let oct = 'Y' + toOctal(item.addr);
                     let fullName = item.name || oct;
-                    return `<div class="bit-box ${item.val ? 'active' : ''}" title="${fullName}">
-                        <b>${item.name ? item.name.substring(0, 10) + '..' : oct}</b><br>
-                        <span style="opacity:0.6">${oct}</span>
-                    </div>`;
+                    return `
+        <div id="${oct}" 
+             class="bit-box ${item.val ? 'active' : ''}" 
+             title="${fullName}">
+            <b>${item.name ? item.name.substring(0, 10) + '..' : oct}</b><br>
+            <span style="opacity:0.6">${oct}</span>
+        </div>`;
                 }).join('');
+
+
                 fillTable('rc-table', rc, 'C');
                 fillTable('rl-table', rl, 'L');
                 fillTable('rd-table', rd, 'D');
@@ -987,47 +971,44 @@
                 tbody.appendChild(row);
             }
         }
-
         // Обработчик опроса данных из JSON
         async function plc_xy() {
             try {
                 const res = await fetch('plc_XY');
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
-                if (!Array.isArray(data)) return;
-                // защита от пустого пакета
+
                 if (!Array.isArray(data) || data.length === 0) {
                     console.warn("Пустой пакет XY");
                     return;
                 }
-                function find(type, dec) {
-                    return data.find(x => x.type === type && x.addr_dec === dec)?.val;
-                }
 
-                const x24 = find("X", 24);
-                const x25 = find("X", 25);
-                const x22 = find("X", 22);
+                // 1. Поиск конкретных значений (как у тебя было)
+                const find = (type, dec) => data.find(x => x.type === type && x.addr_dec === dec)?.val;
+
+                const x24 = find("X", 20);
+                const x25 = find("X", 21);
+                const x22 = find("X", 18);
                 const c102 = find("C", 102);
                 const d4000 = find("D", 4000);
-                // обновляем X и Y
-                for (const bit of data) {
-                    const el = document.querySelector(
-                        `.bit-box[data-type="${bit.type}"][data-addr="${bit.addr_dec}"]`
-                    );
-                    if (el) el.classList.toggle("active", !!bit.val);
+                console.log("X24", x24, "X25", x25, "X22", x22, "c102", c102, "d4000", d4000)
+                if (x22) document.getElementById('_X22').textContent = "ЦЕПЬ ОСТАНОВЛЕНА";
+                else document.getElementById('_X22').textContent = "ЦЕПЬ ДВИЖЕТСЯ";
+                document.getElementById('_X22').classList.toggle("active", !22);
+                document.getElementById('_X24').classList.toggle("active", !x24);
+                document.getElementById('_X25').classList.toggle("active", !x25);
+                // 2. Массовое обновление визуализации через ID
+                for (const item of data) {
+                    // Формируем ID так же, как при отрисовке (тип + восьмеричный адрес)
+                    // Например: "X" + "10" = "X10"
+                    const elementId = item.type + item.addr_oct;
+                    const el = document.getElementById(elementId);
+
+                    if (el) {
+                        // !!item.val превращает 1/0 или любое число в true/false
+                        el.classList.toggle("active", !!item.val);
+                    }
                 }
-
-
-
-                // Сенсоры
-                document.getElementById('X24').classList.toggle('active', !!x24);
-                document.getElementById('X25').classList.toggle('active', !!x25);
-
-                // X22 — цепь
-                const motionEl = document.getElementById('X22');
-                motionEl.classList.toggle('active', !!x22);
-                motionEl.classList.toggle('inactive', !x22);
-                motionEl.style.backgroundColor = x22 ? '#22c55e' : '#ef4444';
 
                 document.getElementById('C102').textContent = c102;
                 document.getElementById('D4000').textContent = d4000;
@@ -1038,8 +1019,11 @@
                 document.getElementById('chain-error').textContent = "Нет связи · " + e.message;
             }
         }
-        document.getElementById('update-button').addEventListener('click', update);
-        setInterval(update, 10000);
+        function update_all() {
+
+        }
+
+        document.getElementById('update-button').addEventListener('click', update_all);
         update();
     </script>
 </body>
