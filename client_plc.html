@@ -303,7 +303,7 @@
             <h3 class="card-title">
                 Мониторинг цепи конвейера <span class="emoji">🔗⚡</span>
                 <label style="display:flex; align-items:center; gap:8px; margin:10px 0;">
-                    <input type="checkbox" id="poll-x-checkbox" checked>
+                    <input type="checkbox" id="poll-x-checkbox" >
                     Опрос Online 500мс
                 </label>
             </h3>
@@ -1031,6 +1031,37 @@
 
         document.getElementById('update-button').addEventListener('click', update_all);
         update();
+        // Используем функцию, которая дождется полной загрузки DOM
+        window.addEventListener('DOMContentLoaded', (event) => {
+            const pollIntervalCheckbox = document.getElementById('poll-interval');
+
+            // Проверяем, нашел ли браузер наш чекбокс
+            if (pollIntervalCheckbox) {
+                console.log("Чекбокс найден, настраиваем опрос...");
+
+                function togglePolling() {
+                    if (pollIntervalCheckbox.checked) {
+                        if (!window.pollTimer) {
+                            window.pollTimer = setInterval(plc_xy, 500);
+                            console.log("Интервал запущен: 500мс");
+                        }
+                    } else {
+                        clearInterval(window.pollTimer);
+                        window.pollTimer = null;
+                        console.log("Интервал остановлен");
+                    }
+                }
+
+                // Слушаем клик по галочке
+                pollIntervalCheckbox.addEventListener('change', togglePolling);
+
+                // Сразу запускаем опрос, так как в HTML стоит checked
+                togglePolling();
+                plc_xy();
+            } else {
+                console.error("Ошибка: Элемент #poll-interval не найден в DOM!");
+            }
+        });
 
     </script>
 </body>
