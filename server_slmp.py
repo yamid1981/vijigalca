@@ -113,6 +113,7 @@ TAGS = {
         0:	'база  не выбрана',
         1:	'сработка датчика при остановленной цепи',
         2:	'Авария X24/X25',
+        3:  'Необходимо выбрать расстаяние между передними стойками',
         4:	'Неопределенное состояние остановов',
         11:	'сигналы S9 и S10 не равны',
         12:	'сигналы S37 и S38 не равны',
@@ -772,30 +773,39 @@ def plc_XY():
     try:
         mc.connect("192.168.161.1", 5000)
 
-        # Читаем биты (X и Y)
         rx_bits = mc.batchread_bitunits("X0", 43)
         ry_bits = mc.batchread_bitunits("Y0", 6)
-        
-        # Читаем ворды (CN для счетчика, D для регистра)
-        # batchread_wordunits возвращает список, берем [0]
+
         c102_val = mc.batchread_wordunits("CN102", 1)[0]
         d4000_val = mc.batchread_wordunits("D4000", 1)[0]
 
         result = []
 
-        # Обработка X: конвертируем индекс i в восьмеричный адрес
+        # X
         for i, val in enumerate(rx_bits):
-            oct_addr = oct(i)[2:] # "8" станет "10", "15" станет "17"
-            result.append({"type": "X", "addr": oct_addr, "val": val})
+            addr_oct = format(i, "o")      # восьмеричный
+            addr_dec = i                   # десятичный
+            result.append({
+                "type": "X",
+                "addr_oct": addr_oct,
+                "addr_dec": addr_dec,
+                "val": val
+            })
 
-        # Обработка Y: также в восьмеричной (хотя их всего 6, на будущее полезно)
+        # Y
         for i, val in enumerate(ry_bits):
-            oct_addr = oct(i)[2:]
-            result.append({"type": "Y", "addr": oct_addr, "val": val})
+            addr_oct = format(i, "o")
+            addr_dec = i
+            result.append({
+                "type": "Y",
+                "addr_oct": addr_oct,
+                "addr_dec": addr_dec,
+                "val": val
+            })
 
-        # Добавляем регистры (ВНЕ циклов X/Y)
-        result.append({"type": "C", "addr": "102", "val": c102_val})
-        result.append({"type": "D", "addr": "4000", "val": d4000_val})
+        # C и D
+        result.append({"type": "C", "addr_dec": 102, "val": c102_val})
+        result.append({"type": "D", "addr_dec": 4000, "val": d4000_val})
 
         return jsonify(result)
 
@@ -803,7 +813,6 @@ def plc_XY():
         return jsonify({"error": str(e)}), 500
     finally:
         mc.close()
-
 
     
 # Новый роут — список пользователей (JSON для фронта)
