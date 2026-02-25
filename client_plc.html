@@ -1026,18 +1026,31 @@
         document.getElementById('update-button').addEventListener('click', update_all);
         update();
 
-        // Пример логики в скрипте:
-const pollCheckbox = document.getElementById('poll-x-checkbox');
+        let pollTimer = null;
 
-function startPolling() {
-    if (pollCheckbox.checked) {
-        // твой код запуска setInterval
-        console.log("Опрос запущен по умолчанию");
-    }
-}
+        // Функция запуска/остановки
+        function togglePolling() {
+            const isChecked = document.getElementById('poll-interval').checked;
 
-// Вызываем при загрузке страницы
-startPolling();
+            if (isChecked) {
+                if (!pollTimer) {
+                    pollTimer = setInterval(plc_xy, 500);
+                    console.log("Опрос запущен");
+                }
+            } else {
+                clearInterval(pollTimer);
+                pollTimer = null;
+                console.log("Опрос остановлен");
+            }
+        }
+
+        // 1. Вешаем обработчик на клик
+        document.getElementById('poll-interval').addEventListener('change', togglePolling);
+
+        // 2. ЗАПУСКАЕМ СРАЗУ при загрузке страницы
+        togglePolling();
+        // Также один раз вызываем саму функцию получения данных, чтобы не ждать первые 500мс
+        plc_xy(); 
     </script>
 </body>
 
