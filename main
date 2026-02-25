@@ -766,20 +766,46 @@ def plc_get():
     plc_data = get_plc_data()
     return jsonify(plc_data)
 
-@app.route("/plc_X")
-def plc_X():
-    mc = Type3E() 
-    mc.connect("192.168.161.1", 5000)
-    rx_bits = mc.batchread_bitunits("X0", 43)
+@app.route("/plc_XY")
+def plc_XY():
+    mc = Type3E()
+    try:
+        mc.connect("192.168.161.1", 5000)
 
-    # Превращаем в массив объектов
-    result = [
-        {"addr": i, "val": rx_bits[i]}
-        for i in range(len(rx_bits))
-    ]
+        # Читаем биты (X и Y)
+        rx_bits = mc.batchread_bitunits("X0", 43)
+        ry_bits = mc.batchread_bitunits("Y0", 6)
+        
+        # Читаем ворды (CN для счетчика, D для регистра)
+        # batchread_wordunits возвращает список, берем [0]
+        c102_val = mc.batchread_wordunits("CN102", 1)[0]
+        d4000_val = mc.batchread_wordunits("D4000", 1)[0]
 
-    return jsonify(result)
+        result = []
 
+        # Обработка X: конвертируем индекс i в восьмеричный адрес
+        for i, val in enumerate(rx_bits):
+            oct_addr = oct(i)[2:] # "8" станет "10", "15" станет "17"
+            result.append({"type": "X", "addr": oct_addr, "val": val})
+
+        # Обработка Y: также в восьмеричной (хотя их всего 6, на будущее полезно)
+        for i, val in enumerate(ry_bits):
+            oct_addr = oct(i)[2:]
+            result.append({"type": "Y", "addr": oct_addr, "val": val})
+
+        # Добавляем регистры (ВНЕ циклов X/Y)
+        result.append({"type": "C", "addr": "102", "val": c102_val})
+        result.append({"type": "D", "addr": "4000", "val": d4000_val})
+
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        mc.close()
+
+
+    
 # Новый роут — список пользователей (JSON для фронта)
 @app.route("/users")
 def get_users():
