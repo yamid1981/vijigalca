@@ -184,60 +184,104 @@
             background: #334155;
         }
 
-        .monitoring-block {
+        .conveyor-card {
+            background: linear-gradient(135deg, #1e3a5f, #0f2a4a);
+            padding: 18px;
+            border-radius: 14px;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+            color: #e5e7eb;
+        }
+
+        .card-title {
+            margin: 0 0 14px 0;
+            font-size: 1.4em;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .emoji {
+            font-size: 1.2em;
+        }
+
+        .conveyor-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-            background-color: #fafafa;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 18px;
             padding: 10px;
-            border-radius: 5px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, .1);
-            margin-bottom: 20px;
+        }
+
+        .sensor-block {
+            text-align: center;
+        }
+
+        .sensor-block.wide {
+            grid-column: span 2;
         }
 
         .indicator-circle {
-            width: 50px;
-            height: 50px;
-            line-height: 50px;
-            text-align: center;
+            width: 70px;
+            height: 70px;
+            margin: 0 auto;
             border-radius: 50%;
-            background-color: grey;
-            color: white;
-            font-weight: bold;
-            transition: all 0.3s ease-in-out;
+            background: #374151;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 1.1em;
+            color: #d1d5db;
+            transition: 0.25s;
+            box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.4);
         }
 
         .indicator-circle.active {
-            background-color: green;
+            background: #22c55e;
+            color: white;
+            box-shadow: 0 0 12px #22c55e;
         }
 
-        .motion-indicator .indicator-circle.active {
-            background-color: yellowgreen;
+        .indicator-circle.inactive {
+            background: #ef4444;
+            color: white;
+            box-shadow: 0 0 12px #ef4444;
         }
 
-        .motion-indicator .indicator-circle.inactive {
-            background-color: red;
+        .direction-indicator {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto;
+            border-radius: 50%;
+            background: #374151;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2em;
+            transition: 0.25s;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.4);
         }
 
-        #counter-D102 {
+        .indicator-label {
+            margin-top: 6px;
+            font-size: 0.9em;
+            opacity: 0.85;
+        }
+
+        .big-value {
+            font-size: 2.4em;
             font-weight: bold;
-            color: navy;
-            font-size: 1.5em;
+            color: #fbbf24;
         }
 
-        #btn-reset-D4000 {
-            cursor: pointer;
-            background-color: orange;
-            color: black;
-            font-weight: bold;
-            padding: 5px 10px;
-            border-radius: 5px;
-            transition: all 0.3s ease-in-out;
+        .medium-value {
+            font-size: 1.8em;
+            color: #f59e0b;
         }
 
-        #btn-reset-D4000:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
+        .chain-error {
+            color: #f87171;
+            text-align: center;
+            margin-top: 12px;
+            min-height: 1.2em;
         }
     </style>
 </head>
@@ -259,29 +303,48 @@
                 Опрос входов X Online
             </label>
         </div>
-        <div class="card" style="display: grid;">
-            <h3>Мониторинг цепи:</h3>
+        <div class="card conveyor-card">
+            <h3 class="card-title">
+                Мониторинг цепи конвейера <span class="emoji">🔗⚡</span>
+            </h3>
 
-            <div class="sensor-indicators">
-                <p>Датчики наличия звена:</p>
-                <div id="X24" class="indicator-circle">X24</div>
-                <div id="X25" class="indicator-circle">X25</div>
+            <div class="conveyor-grid">
+
+                <div class="sensor-block">
+                    <div class="indicator-circle" id="X24">X24</div>
+                    <div class="indicator-label">Начало звена (A)</div>
+                </div>
+
+                <div class="sensor-block">
+                    <div class="indicator-circle" id="X25">X25</div>
+                    <div class="indicator-label">Конец звена (B)</div>
+                </div>
+
+                <div class="sensor-block">
+                    <div class="indicator-circle" id="X22">X22</div>
+                    <div class="indicator-label">Цепь START/STOP</div>
+                </div>
+
+                <div class="sensor-block wide">
+                    <div class="big-value" id="C102">--</div>
+                    <div class="indicator-label">Звеньев (heartbeat)</div>
+                </div>
+
+                <div class="sensor-block">
+                    <div class="medium-value" id="D4000">--</div>
+                    <div class="indicator-label">Перезапуск</div>
+                </div>
+
+                <div class="sensor-block">
+                    <div class="direction-indicator" id="chain-motion">
+                        <span id="direction-arrow">↔</span>
+                    </div>
+                    <div class="indicator-label">Направление</div>
+                </div>
+
             </div>
 
-            <div class="motion-indicator">
-                <p>Движение цепи:</p>
-                <div id="X22" class="indicator-circle">X22</div>
-            </div>
-
-            <div class="counter-indicator">
-                <p>Количество звеньев:</p>
-                <div id="C102">--</div>
-            </div>
-
-            <div class="reset-indicator">
-                <p>Перезапуск:</p>
-                <div id="D4000">--</div>
-            </div>
+            <div id="chain-error" class="chain-error"></div>
         </div>
         <!-- Y -->
         <div class="card">
@@ -654,48 +717,6 @@
             }).join('');
         }
 
-        // Обработчик опроса данных из JSON
-        async function plc_xy() {
-            try {
-                const res = await fetch('/plc_XY');
-                const data = await res.json();
-
-                if (!Array.isArray(data)) return;
-
-                // Получаем нужные данные
-                const x24 = data.find(x => x.type === "X" && x.addr === "30")?.val;
-                const x25 = data.find(x => x.type === "X" && x.addr === "31")?.val;
-                const motion = data.find(x => x.type === "X" && x.addr === "26")?.val;
-                const count = data.find(x => x.type === "C" && x.addr === "102")?.val;
-                const resetValue = data.find(x => x.type === "D" && x.addr === "4000")?.val;
-
-                // Обновляем состояние сенсоров
-                if (x24) { document.getElementById('X24').classList.add('active'); }
-                else { document.getElementById('X24').classList.remove('active'); }
-                if (x25) { document.getElementById('X25').classList.add('active'); }
-                else { document.getElementById('X25').classList.remove('active'); }
-
-                // Движение цепи
-                if (motion) {
-                    document.getElementById('motion-X22').classList.add('active');
-                    document.getElementById('motion-X22').classList.remove('inactive');
-                }
-                else {
-                    document.getElementById('X22').classList.add('inactive');
-                    document.getElementById('X22').classList.remove('active');
-                }
-
-                // Количество звеньев
-                document.getElementById('C102').textContent = count ?? '--';
-
-                // Перезапуск
-                document.getElementById('D4000').textContent = count ?? '--';
-
-            } catch (e) {
-                console.error("Ошибка опроса XY:", e);
-            }
-        }
-
         async function update() {
             try {
                 _sys_time = "";
@@ -961,7 +982,61 @@
                 tbody.appendChild(row);
             }
         }
+
+        // Обработчик опроса данных из JSON
+        async function plc_xy() {
+            try {
+                const res = await fetch('plc_XY');
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                if (!Array.isArray(data)) return;
+                // защита от пустого пакета
+                if (!Array.isArray(data) || data.length === 0) {
+                    console.warn("Пустой пакет XY");
+                    return;
+                }
+                function find(type, dec) {
+                    return data.find(x => x.type === type && x.addr_dec === dec)?.val;
+                }
+
+                const x24 = find("X", 24);
+                const x25 = find("X", 25);
+                const x22 = find("X", 22);
+                const c102 = find("C", 102);
+                const d4000 = find("D", 4000);
+                // обновляем X и Y
+                for (const bit of data) {
+                    const el = document.querySelector(
+                        `.bit-box[data-type="${bit.type}"][data-addr="${bit.addr_dec}"]`
+                    );
+                    if (!el) continue;
+
+                    el.classList.toggle("active", !!bit.val);
+                }
+
+
+
+                // Сенсоры
+                document.getElementById('X24').classList.toggle('active', !!x24);
+                document.getElementById('X25').classList.toggle('active', !!x25);
+
+                // X22 — цепь
+                const motionEl = document.getElementById('X22');
+                motionEl.classList.toggle('active', !!x22);
+                motionEl.classList.toggle('inactive', !x22);
+                motionEl.style.backgroundColor = x22 ? '#22c55e' : '#ef4444';
+
+                document.getElementById('C102').textContent = c102;
+                document.getElementById('D4000').textContent = d4000;
+
+                document.getElementById('chain-error').textContent = '';
+            } catch (e) {
+                console.error("Ошибка опроса цепи:", e);
+                document.getElementById('chain-error').textContent = "Нет связи · " + e.message;
+            }
+        }
         document.getElementById('update-button').addEventListener('click', update);
+        setInterval(update,10000);
         update();
     </script>
 </body>
