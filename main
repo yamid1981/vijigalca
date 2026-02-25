@@ -821,7 +821,7 @@ def get_users():
                 "last_seen": data["last_seen"].strftime("%H:%M:%S"),
                 "requests": data["request_count"],
                 "user_agent": data["user_agent"][:60]  # укорачиваем, чтобы не ломать таблицу
-            })
+            }) 
 
     # Сортируем по времени последнего запроса (новые сверху)
     active_users.sort(key=lambda x: x["last_seen"], reverse=True)
