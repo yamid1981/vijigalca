@@ -450,16 +450,6 @@
         var _sys_time = "";
         let xyInterval = null;
 
-        document.getElementById("poll-x-checkbox").addEventListener("change", function () {
-            if (this.checked) {
-                xyInterval = setInterval(plc_xy, 500);
-                plc_xy();
-            } else {
-                clearInterval(xyInterval);
-                xyInterval = null;
-            }
-        });
-
         // Автоматическое отключение опроса и снятие галочки при скрытие страницы
         document.addEventListener("visibilitychange", () => {
             const checkbox = document.getElementById("poll-x-checkbox");
@@ -878,7 +868,17 @@
                     if (skipCount > 0) i += skipCount;
                 }
             }
+            plc_xy();
         }
+        document.getElementById("poll-x-checkbox").addEventListener("change", function () {
+            if (this.checked) {
+                xyInterval = setInterval(plc_xy, 500);
+                plc_xy();
+            } else {
+                clearInterval(xyInterval);
+                xyInterval = null;
+            }
+        });
         function fillTableFRD(arr) {
             const tbody = document.querySelector('#frd-table tbody');
             tbody.innerHTML = '';
@@ -994,7 +994,13 @@
                 console.log("X24", x24, "X25", x25, "X22", x22, "c102", c102, "d4000", d4000)
                 if (x22) document.getElementById('_X22').textContent = "ЦЕПЬ ОСТАНОВЛЕНА";
                 else document.getElementById('_X22').textContent = "ЦЕПЬ ДВИЖЕТСЯ";
-                document.getElementById('_X22').classList.toggle("active", !x22);
+                const el = document.getElementById('_X22'); // Убедись, что ID совпадает (X24 или _X24)
+                if (x22) {
+                    el.classList.remove("active");
+                } else {
+                    el.classList.add("active");
+                }
+                document.getElementById('_X22').classList.toggle("active", x22);
                 document.getElementById('_X24').classList.toggle("active", !x24);
                 document.getElementById('_X25').classList.toggle("active", !x25);
                 // 2. Массовое обновление визуализации через ID
@@ -1026,31 +1032,6 @@
         document.getElementById('update-button').addEventListener('click', update_all);
         update();
 
-        let pollTimer = null;
-
-        // Функция запуска/остановки
-        function togglePolling() {
-            const isChecked = document.getElementById('poll-interval').checked;
-
-            if (isChecked) {
-                if (!pollTimer) {
-                    pollTimer = setInterval(plc_xy, 500);
-                    console.log("Опрос запущен");
-                }
-            } else {
-                clearInterval(pollTimer);
-                pollTimer = null;
-                console.log("Опрос остановлен");
-            }
-        }
-
-        // 1. Вешаем обработчик на клик
-        document.getElementById('poll-interval').addEventListener('change', togglePolling);
-
-        // 2. ЗАПУСКАЕМ СРАЗУ при загрузке страницы
-        togglePolling();
-        // Также один раз вызываем саму функцию получения данных, чтобы не ждать первые 500мс
-        plc_xy(); 
     </script>
 </body>
 
