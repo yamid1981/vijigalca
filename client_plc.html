@@ -289,10 +289,9 @@
 <body>
     <div id="status-bar">Связь устанавливается...</div>
     <div id="plc_time" style="padding-block: 1em;"></div>
-    <button id="update-button"
-        style="background-color: #22c55e; color: white; padding: 10px 20px; border-radius: 6px; cursor: pointer;">Обновить
-        ВСЕ
-        данные</button>
+    <button onclick="location.reload()" id="update-button"
+        style="background-color: #22c55e; color: white; padding: 10px 20px; border-radius: 6px; cursor: pointer;">🔄
+        Обновить все данные</button>
     <!-- X -->
     <div class="main-container">
         <div class="card">
@@ -301,9 +300,9 @@
         </div>
         <div class="card conveyor-card">
             <h3 class="card-title">
-                Мониторинг цепи конвейера <span class="emoji">🔗⚡</span>
+                Мониторинг цепи конвейера <span class="emoji">🚛 🔗 🚚</span>
                 <label style="display:flex; align-items:center; gap:8px; margin:10px 0;">
-                    <input type="checkbox" id="poll-x-checkbox" >
+                    <input type="checkbox" id="poll-x-checkbox">
                     Опрос Online 500мс
                 </label>
             </h3>
@@ -321,7 +320,7 @@
                 </div>
 
                 <div class="sensor-block" style="margin-top: 2em;">
-                    <div class="indicator-circle">X22</div>
+                    <div class="indicator-circle" id="_X22_">X22</div>
                     <div class="indicator-label" id="_X22">ЦЕПЬ</div>
                 </div>
 
@@ -802,7 +801,7 @@
                     row.innerHTML = `
                 <td class="reg-idx">C${targetIdx}</td>
                 <td class="reg-name">${item.name || '---'}</td>
-                <td class="reg-val" style="color: ${valueColor}; padding-right: 10px;">${displayVal}</td>
+                <td class="reg-val" id="C${targetIdx}" style="color: ${valueColor}; padding-right: 10px;">${displayVal}</td>
             `;
                     table.appendChild(row);
                 });
@@ -858,22 +857,26 @@
                         row.style.background = "rgba(239, 68, 68, 0.05)";
                     }
 
+                    const elementId = `${prefix}${item.addr}`; // Получится "C102", "D4000" и т.д.
+                    row.id = `row-${elementId}`; // Чтобы не конфликтовать, если есть другие элементы
+                    row.setAttribute('data-value-id', elementId); // Или через data-атрибут
+
                     row.innerHTML = `
-                <td class="reg-idx">${prefix}${item.addr}</td>
-                <td class="reg-name">${item.name || '---'}</td>
-                <td class="reg-val">${prefix === 'L' ? displayVal : (item.val + extraText)}</td>
-            `;
+                                        <td class="reg-idx">${prefix}${item.addr}</td>
+                                        <td class="reg-name">${item.name || '---'}</td>
+                                        <td class="reg-val" id="${elementId}">${prefix === 'L' ? displayVal : (item.val + extraText)}</td>
+                                    `;
                     table.appendChild(row);
 
                     if (skipCount > 0) i += skipCount;
                 }
             }
-            plc_xy();
+            plc_xyl();
         }
         document.getElementById("poll-x-checkbox").addEventListener("change", function () {
             if (this.checked) {
-                xyInterval = setInterval(plc_xy, 500);
-                plc_xy();
+                xyInterval = setInterval(plc_xyl, 500);
+                plc_xyl();
             } else {
                 clearInterval(xyInterval);
                 xyInterval = null;
@@ -972,9 +975,9 @@
             }
         }
         // Обработчик опроса данных из JSON
-        async function plc_xy() {
+        async function plc_xyl() {
             try {
-                const res = await fetch('plc_XY');
+                const res = await fetch('plc_XYL');
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
 
@@ -994,7 +997,7 @@
                 console.log("X24", x24, "X25", x25, "X22", x22, "c102", c102, "d4000", d4000)
                 if (x22) document.getElementById('_X22').textContent = "ЦЕПЬ ОСТАНОВЛЕНА";
                 else document.getElementById('_X22').textContent = "ЦЕПЬ ДВИЖЕТСЯ";
-                const el = document.getElementById('_X22'); // Убедись, что ID совпадает (X24 или _X24)
+                const el = document.getElementById('_X22_');
                 if (x22) {
                     el.classList.remove("active");
                 } else {
@@ -1021,48 +1024,11 @@
 
                 document.getElementById('chain-error').textContent = '';
             } catch (e) {
-                console.error("Ошибка опроса цепи:", e);
+                console.error("Ошибка:", e);
                 document.getElementById('chain-error').textContent = "Нет связи · " + e.message;
             }
         }
-        function update_all() {
-
-        }
-
-        document.getElementById('update-button').addEventListener('click', update_all);
         update();
-        // Используем функцию, которая дождется полной загрузки DOM
-        window.addEventListener('DOMContentLoaded', (event) => {
-            const pollIntervalCheckbox = document.getElementById('poll-interval');
-
-            // Проверяем, нашел ли браузер наш чекбокс
-            if (pollIntervalCheckbox) {
-                console.log("Чекбокс найден, настраиваем опрос...");
-
-                function togglePolling() {
-                    if (pollIntervalCheckbox.checked) {
-                        if (!window.pollTimer) {
-                            window.pollTimer = setInterval(plc_xy, 500);
-                            console.log("Интервал запущен: 500мс");
-                        }
-                    } else {
-                        clearInterval(window.pollTimer);
-                        window.pollTimer = null;
-                        console.log("Интервал остановлен");
-                    }
-                }
-
-                // Слушаем клик по галочке
-                pollIntervalCheckbox.addEventListener('change', togglePolling);
-
-                // Сразу запускаем опрос, так как в HTML стоит checked
-                togglePolling();
-                plc_xy();
-            } else {
-                console.error("Ошибка: Элемент #poll-interval не найден в DOM!");
-            }
-        });
-
     </script>
 </body>
 
