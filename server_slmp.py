@@ -1,6 +1,7 @@
 from pymodbus.client.sync import ModbusTcpClient
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pymcprotocol import Type3E
 from flask import Flask, render_template, jsonify, request
 import pandas as pd
@@ -13,7 +14,19 @@ from urllib.parse import quote_plus
 from datetime import datetime, timedelta
 warnings.filterwarnings("ignore", category=UserWarning, message="pandas only supports SQLAlchemy")
 IP_ADDR = "192.168.161.1"
-PORT = 5000
+PORT  = 5000
+PORT1 = 5001
+PORT2 = 5002
+PORT3 = 5003
+PORT4 = 5004
+IP = "192.168.161.1"
+PORTS = [5000, 5001, 5002, 5003, 5004]
+TOTAL_D = 8000
+TOTAL_R = 31200
+# Увеличиваем размер чанка до максимально стабильного для iQ-F/Q
+CHUNK_SIZE = 450 #с большим значением не работает
+TOTAL_WORDS_D = 8000
+TOTAL_WORDS_RD = 31200
 # Создаем глобальный кэш для данных ПЛК
 TAGS = {
 'SD': {
@@ -64,8 +77,8 @@ TAGS = {
         17: 'X21	Ручной режим останов ЗАКРЫТЬ',
         18: 'X22	ЦЕПЬ',
         19: 'X23	Резерв',
-        20: 'X24	NEW_BQ21 набор шага и баз ',
-        21: 'X25	NEW_BQ22 набор шага и баз ',
+        20: 'X24	NEW_BQ21 датчик конца звена',
+        21: 'X25	NEW_BQ22 датчик начала звена',
         22: 'X26	Резерв',
         23: 'X27	Резерв',
         24: 'X30	останов ПОЗ-1 Закладка',
@@ -85,7 +98,7 @@ TAGS = {
         1: 'Шток останова 1: Закрыть',
         2: 'Шток останова 2: Открыть',
         3: 'Шток останова 2: Закрыть',
-        5: 'Сигнал АВАРИИ из КОНТРОЛЛЕРА'
+        5: 'Сигнал АВАРИИ из КОНТРОЛЛЕРА 0-активный'
     },
 'RC': {  # Счётчики (Counters)
         30:  'время стоп закладка',
@@ -103,9 +116,9 @@ TAGS = {
         45:  'время движения цепи',
         46:  'время стоп цепи',
         50:  'время работы контроллера',
-        101: 'энерго независимый счетчик 1 X4/X5',
+        101: 'энерго независимый счетчик 1 X4 или X5',
         102: 'энерго независимый счетчик основной',
-        103: 'энерго независимый счетчик 2 X24/X25',
+        103: 'энерго независимый счетчик 2 X24 + X25',
         104: 'энерго независимый счетчик при движении в -',
         110: 'энерго независимый счетчик машин'
     },
@@ -398,54 +411,82 @@ conn_params = quote_plus(
     f"PWD={PASSWORD}"
 )
 engine = create_engine(f"mssql+pyodbc:///?odbc_connect={conn_params}")
-def read_batch(device_type, start, size_or_list):
-    """
-    Универсальная функция чтения. 
-    Если size_or_list - число, читает блок.
-    Если size_or_list - список, читает конкретные адреса.
-    """
-    # Для FX5U/iQ-R используем "iQ-F", чтобы работали RD-регистры
-    p_type = "iQ-R" if device_type.startswith("RD") else "Q"
-    
-    mc = Type3E(plctype=p_type) 
-    mc.connect(IP_ADDR, PORT)
-    
-    dev = device_type
-    if dev == 'C': dev = 'CN' 
-    
-    all_data = []
-    
+def read_range(port, device, start, size):
+    mc = Type3E()
+    mc.connect(IP, port)
     try:
-        if isinstance(size_or_list, list):
-            # Режим чтения списка конкретных адресов
-            for offset in size_or_list:
-                addr = f"{dev}{start + offset}"
-                # Читаем 1 слово для каждого адреса
-                val = mc.batchread_wordunits(addr, 1)
-                all_data.append(val[0] if val else None)
-        else:
-            # Режим чтения последовательного блока
-            chunk_limit = 480 
-            for i in range(0, size_or_list, chunk_limit):
-                current_batch = min(chunk_limit, size_or_list - i)
-                addr = f"{dev}{start + i}"
-                all_data.extend(mc.batchread_wordunits(addr, current_batch))
-    except Exception as e:
-        print(f"Ошибка на {dev}: {e}")
+        return mc.batchread_wordunits(f"{device}{start}", size)
     finally:
         mc.close()
-    return all_data
 
+def parallel_read(device, total_words):
+    tasks = []
+    with ThreadPoolExecutor(max_workers=len(PORTS)) as ex:
+        port_index = 0
+        for i in range(0, total_words, CHUNK_SIZE):
+            size = min(CHUNK_SIZE, total_words - i)
+            port = PORTS[port_index]
+            port_index = (port_index + 1) % len(PORTS)
+
+            tasks.append(ex.submit(read_range, port, device, i, size))
+
+        result = []
+        for t in tasks:
+            try:
+                chunk = t.result()
+                result.extend([v & 0xFFFF for v in chunk])
+            except Exception as e:
+                print(f"Ошибка в потоке при чтении {device}: {e}")
+                raise
+
+        return result
+def red_slmp_fast():
+    try:
+        start = time.perf_counter()
+
+        # Параллельное чтение больших областей
+        all_d = parallel_read("D", TOTAL_D)
+        all_r = parallel_read("R", TOTAL_R)
+
+        # Однопоточные мелкие чтения (не критично)
+        mc = Type3E()
+        mc.connect(IP, 5000)
+
+        rx = mc.batchread_bitunits("X0", 43)
+        ry = mc.batchread_bitunits("Y0", 6)
+        rl = mc.batchread_bitunits("L0", 58)
+        rm = mc.batchread_bitunits("M0", 528)
+        rc = mc.batchread_wordunits("CN30", 111)
+
+        SD_LIST = [0,200,201,203,600,604,606,607,608,609,610,611,612,210,211,212,213,214,215,216,519,523,524,525]
+        max_sd = max(SD_LIST)
+        sd_range = mc.batchread_wordunits("SD0", max_sd+1)
+        rsd = {addr: sd_range[addr] & 0xFFFF for addr in SD_LIST}
+
+        mc.close()
+
+        duration = time.perf_counter() - start
+        print(f"Параллельный опрос завершён за {duration:.4f} сек.")
+
+        return {
+            "D": all_d,
+            "RD": all_r,
+            "X": [bool(x) for x in rx],
+            "Y": [bool(y) for y in ry],
+            "L": [bool(l) for l in rl],
+            "M": [bool(m) for m in rm],
+            "C": rc,
+            "SD": rsd
+        }
+    except Exception as e:
+        print(f"Ошибка: {e}")
+    finally:
+        mc.close()    
 def red_slmp():
  
     SD_LIST = [0, 200, 201, 203, 600, 604, 606, 607, 608, 609, 610, 611, 612, 210, 211, 212, 213, 214, 215, 216, 519, 523, 524, 525]
     mc = Type3E() 
     mc.connect("192.168.161.1", 5000)
-
-    # Увеличиваем размер чанка до максимально стабильного для iQ-F/Q
-    CHUNK_SIZE = 450 
-    TOTAL_WORDS_D = 8000
-    TOTAL_WORDS_RD = 31200
 
     all_data_d = []
     all_data_rd = []
@@ -636,7 +677,8 @@ def poll_device(client_not_used, device_info):
     try:
         # Вызываем вашу новую быструю функцию
         # Она возвращает словарь: {"X": [...], "Y": [...], "C": [...], ...}
-        data = red_slmp()
+        data = red_slmp() #где то 1.2 сек
+        # data = red_slmp_fast() #где то 1.1 сек нет смысла оставлять такую сложность
         
         if not data:
             return None
@@ -767,15 +809,15 @@ def plc_get():
     plc_data = get_plc_data()
     return jsonify(plc_data)
 
-@app.route("/plc_XY")
-def plc_XY():
+@app.route("/plc_XYL")
+def plc_XYL():
     mc = Type3E()
     try:
         mc.connect("192.168.161.1", 5000)
 
         rx_bits = mc.batchread_bitunits("X0", 43)
         ry_bits = mc.batchread_bitunits("Y0", 6)
-
+        rl_bits = mc.batchread_bitunits("L0", 58)
         c102_val = mc.batchread_wordunits("CN102", 1)[0]
         d4000_val = mc.batchread_wordunits("D4000", 1)[0]
 
@@ -802,7 +844,16 @@ def plc_XY():
                 "addr_dec": addr_dec,
                 "val": val
             })
-
+        # L
+        for i, val in enumerate(rl_bits):
+            addr_oct = format(i, "o")
+            addr_dec = i
+            result.append({
+                "type": "L",
+                "addr_oct": addr_oct,
+                "addr_dec": addr_dec,
+                "val": val
+            })
         # C и D
         result.append({"type": "C", "addr_dec": 102, "val": c102_val})
         result.append({"type": "D", "addr_dec": 4000, "val": d4000_val})
