@@ -103,6 +103,10 @@
             font-size: 1.1em;
         }
 
+        .reg-val.inactive {
+            color: #ef4444;
+        }
+
         #status-bar {
             width: 100%;
             max-width: 800px;
@@ -190,6 +194,96 @@
             border-radius: 14px;
             box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
             color: #e5e7eb;
+        }
+
+        .conveyor-card.conveyor-moving {
+            background: linear-gradient(120deg, #1e3a5f, #0f2a4a, #1e3a5f);
+            background-size: 200% 200%;
+            animation: conveyorFlow 2.5s linear infinite;
+            box-shadow: 0 0 18px rgba(34, 197, 94, 0.35);
+        }
+
+        .conveyor-card.conveyor-stopped {
+            background: linear-gradient(135deg, #2a3544, #1a2433);
+            box-shadow: 0 0 18px rgba(239, 68, 68, 0.25);
+        }
+
+        @keyframes conveyorFlow {
+            0% {
+                background-position: 0% 50%;
+            }
+
+            100% {
+                background-position: 100% 50%;
+            }
+        }
+
+        .conveyor-belt {
+            height: 28px;
+            border-radius: 999px;
+            background: repeating-linear-gradient(90deg,
+                    #0f172a 0px,
+                    #0f172a 18px,
+                    #22c55e 18px,
+                    #22c55e 28px);
+            background-size: 56px 100%;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.45);
+            opacity: 0.75;
+            margin: 8px 0 16px 0;
+        }
+
+        .conveyor-card.conveyor-moving .conveyor-belt {
+            animation: beltMove 1s linear infinite;
+            opacity: 1;
+        }
+
+        .conveyor-card.conveyor-stopped .conveyor-belt {
+            filter: grayscale(0.6);
+            opacity: 0.5;
+        }
+
+        @keyframes beltMove {
+            0% {
+                background-position: 0 0;
+            }
+
+            100% {
+                background-position: 56px 0;
+            }
+        }
+
+        .event-log {
+            max-height: 220px;
+            overflow-y: auto;
+            border-top: 1px solid #334155;
+            margin-top: 10px;
+            padding-top: 8px;
+            font-family: "Cascadia Code", monospace;
+            font-size: 12px;
+        }
+
+        .event-log-item {
+            display: flex;
+            gap: 8px;
+            align-items: baseline;
+            padding: 4px 0;
+            border-bottom: 1px dashed #223048;
+        }
+
+        .event-time {
+            color: #94a3b8;
+            min-width: 66px;
+        }
+
+        .event-tag {
+            color: #22c55e;
+            font-weight: 700;
+            min-width: 36px;
+        }
+
+        .event-name {
+            color: #e2e8f0;
+            opacity: 0.9;
         }
 
         .card-title {
@@ -283,6 +377,102 @@
             margin-top: 12px;
             min-height: 1.2em;
         }
+
+        .auth-inline {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 10px 0;
+            flex-wrap: wrap;
+        }
+
+        .auth-inline input[type="password"] {
+            background: #0f172a;
+            color: #f8fafc;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 4px 8px;
+            width: 140px;
+        }
+
+        .auth-input-wrap {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+        }
+
+        .auth-input-wrap input {
+            padding-right: 26px;
+        }
+
+        .auth-input-wrap .auth-check {
+            position: absolute;
+            right: 8px;
+            color: #22c55e;
+            font-weight: 700;
+            display: none;
+        }
+
+        .auth-input-wrap.error input {
+            border-color: #ef4444;
+        }
+
+        .auth-inline button {
+            background: #334155;
+            color: #e2e8f0;
+            border: 1px solid #475569;
+            border-radius: 6px;
+            padding: 4px 10px;
+            cursor: pointer;
+        }
+
+        .auth-error-text {
+            color: #ef4444;
+            font-size: 0.85em;
+            display: none;
+        }
+
+
+        .advanced-panel {
+            margin-top: 10px;
+            padding: 10px;
+            border: 1px dashed #334155;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .advanced-panel label {
+            font-size: 0.9em;
+            color: #94a3b8;
+        }
+
+        .advanced-panel input,
+        .advanced-panel select {
+            background: #0f172a;
+            color: #f8fafc;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 4px 8px;
+        }
+
+        .advanced-panel button {
+            background: #2563eb;
+            color: #e2e8f0;
+            border: 1px solid #1d4ed8;
+            border-radius: 6px;
+            padding: 4px 10px;
+            cursor: pointer;
+        }
+
+        .advanced-status {
+            margin-left: 10px;
+            font-weight: 600;
+            color: #22c55e;
+        }
+
+        .advanced-status.error {
+            color: #ef4444;
+        }
     </style>
 </head>
 
@@ -298,15 +488,22 @@
             <h3>Входы <span>(X)</span></h3>
             <div id="rx-container" class="bits-grid"></div>
         </div>
-        <div class="card conveyor-card">
+        <div class="card conveyor-card conveyor-stopped" id="conveyor-card">
             <h3 class="card-title">
                 Мониторинг цепи конвейера <span class="emoji">🚛 🔗 🚚</span>
-                <label style="display:flex; align-items:center; gap:8px; margin:10px 0;">
-                    <input type="checkbox" id="poll-x-checkbox">
+                <label class="auth-inline">
+                    <input type="checkbox" id="poll-x-checkbox" disabled>
                     Опрос Online 500мс
+                    <span class="auth-input-wrap" id="poll-auth-wrap">
+                        <input type="password" id="poll-auth-pass" placeholder="пароль">
+                        <span class="auth-check" id="poll-auth-ok">✓</span>
+                    </span>
+                    <button type="button" id="poll-auth-btn">OK</button>
+                    <span class="auth-error-text" id="poll-auth-err">неверно</span>
                 </label>
             </h3>
 
+            <div class="conveyor-belt" aria-hidden="true"></div>
             <div class="conveyor-grid">
 
                 <div class="sensor-block" style="margin-top: 2em;">
@@ -335,6 +532,29 @@
             </div>
 
             <div id="chain-error" class="chain-error"></div>
+            <div class="advanced-panel" id="advanced-panel">
+                <label>Запись регистра (только после пароля):</label>
+                <div style="display:flex; align-items:center; gap:8px; flex-wrap: wrap; margin-top: 6px;">
+                    <select id="adv-reg-type">
+                        <option value="D">D</option>
+                        <option value="R">R</option>
+                        <option value="C">C (CN)</option>
+                        <option value="M">M</option>
+                        <option value="X">X</option>
+                        <option value="Y">Y</option>
+                        <option value="L">L</option>
+                    </select>
+                    <input type="number" id="adv-reg-addr" placeholder="адрес">
+                    <input type="number" id="adv-reg-value" placeholder="значение">
+                    <button type="button" id="adv-write-btn">Записать</button>
+                    <span class="advanced-status" id="adv-write-ok" style="display:none;">✓</span>
+                    <span class="advanced-status error" id="adv-write-err" style="display:none;">ошибка</span>
+                </div>
+            </div>
+        </div>
+        <div class="card">
+            <h3>Лог событий (X/Y/L)</h3>
+            <div id="event-log" class="event-log"></div>
         </div>
         <!-- Y -->
         <div class="card">
@@ -755,6 +975,8 @@
                 fillTableRSD(sd);
                 fillTableFRD(frd);
 
+                // Лог событий теперь приходит с сервера
+
                 const special = readSpecialData(rd);
                 fillSpecialTable(special);
 
@@ -766,6 +988,26 @@
                 const status = document.getElementById('status-bar');
                 status.style.background = "#451a1a";
                 status.innerText = "НЕТ СВЯЗИ С ПЛК";
+            }
+        }
+
+        async function fetchEventLog() {
+            const logEl = document.getElementById("event-log");
+            if (!logEl) return;
+            try {
+                const res = await fetch("/event_log");
+                if (!res.ok) return;
+                const data = await res.json();
+                const events = Array.isArray(data.events) ? data.events : [];
+                logEl.innerHTML = events.map(ev => `
+                    <div class="event-log-item">
+                        <span class="event-time">${ev.time || ""}</span>
+                        <span class="event-tag">${ev.tag || ""}</span>
+                        <span class="event-name">${ev.name || ""}</span>
+                    </div>
+                `).join("");
+            } catch (e) {
+                // ignore
             }
         }
         function fillTable(id, arr, prefix) {
@@ -814,9 +1056,10 @@
                     let extraText = '';
                     let skipCount = 0;
                     let displayVal = item.val;
+                    let isTrue = false;
 
                     if (prefix === 'L') {
-                        const isTrue = item.val === true || item.val === 1 || String(item.val).toLowerCase() === 'true';
+                        isTrue = item.val === true || item.val === 1 || String(item.val).toLowerCase() === 'true';
                         if (isTrue) {
                             displayVal = `
                         <div style="display: flex; align-items: center; justify-content: flex-end; color: #ef4444; font-weight: bold;">
@@ -861,19 +1104,114 @@
                     row.id = `row-${elementId}`; // Чтобы не конфликтовать, если есть другие элементы
                     row.setAttribute('data-value-id', elementId); // Или через data-атрибут
 
+                    const valClass = (prefix === 'L' && isTrue) ? 'reg-val inactive' : 'reg-val';
                     row.innerHTML = `
                                         <td class="reg-idx">${prefix}${item.addr}</td>
                                         <td class="reg-name">${item.name || '---'}</td>
-                                        <td class="reg-val" id="${elementId}">${prefix === 'L' ? displayVal : (item.val + extraText)}</td>
+                                        <td class="${valClass}" id="${elementId}">${prefix === 'L' ? displayVal : (item.val + extraText)}</td>
                                     `;
                     table.appendChild(row);
 
                     if (skipCount > 0) i += skipCount;
                 }
             }
-            plc_xyl();
         }
-        document.getElementById("poll-x-checkbox").addEventListener("change", function () {
+        let pollAuthOk = false;
+        let pollAuthToken = "";
+        const pollCheckbox = document.getElementById("poll-x-checkbox");
+        const pollAuthBtn = document.getElementById("poll-auth-btn");
+        const pollAuthPass = document.getElementById("poll-auth-pass");
+        const pollAuthWrap = document.getElementById("poll-auth-wrap");
+        const pollAuthOkEl = document.getElementById("poll-auth-ok");
+        const pollAuthErrEl = document.getElementById("poll-auth-err");
+        const advancedPanel = document.getElementById("advanced-panel");
+        const advType = document.getElementById("adv-reg-type");
+        const advAddr = document.getElementById("adv-reg-addr");
+        const advValue = document.getElementById("adv-reg-value");
+        const advWriteBtn = document.getElementById("adv-write-btn");
+        const advWriteOk = document.getElementById("adv-write-ok");
+        const advWriteErr = document.getElementById("adv-write-err");
+
+        pollAuthBtn.addEventListener("click", async function () {
+            pollAuthErrEl.style.display = "none";
+            pollAuthWrap.classList.remove("error");
+            pollAuthOkEl.style.display = "none";
+            try {
+                const res = await fetch("/auth_check", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ password: pollAuthPass.value })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    pollAuthOk = true;
+                    pollAuthToken = pollAuthPass.value || "";
+                    pollCheckbox.disabled = false;
+                    pollAuthOkEl.style.display = "inline";
+                    pollAuthPass.value = "";
+                    advancedPanel.style.display = "block";
+                    if (!pollCheckbox.checked) {
+                        pollCheckbox.checked = true;
+                        pollCheckbox.dispatchEvent(new Event("change"));
+                    }
+                } else {
+                    pollAuthOk = false;
+                    pollAuthToken = "";
+                    pollCheckbox.checked = false;
+                    pollCheckbox.disabled = true;
+                    clearInterval(xyInterval);
+                    xyInterval = null;
+                    pollAuthErrEl.style.display = "inline";
+                    pollAuthWrap.classList.add("error");
+                    advancedPanel.style.display = "none";
+                }
+            } catch (e) {
+                pollAuthErrEl.style.display = "inline";
+                pollAuthWrap.classList.add("error");
+            }
+        });
+
+        pollAuthPass.addEventListener("keydown", function (e) {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                pollAuthBtn.click();
+            }
+        });
+
+        advWriteBtn.addEventListener("click", async function () {
+            advWriteOk.style.display = "none";
+            advWriteErr.style.display = "none";
+            if (!pollAuthOk) {
+                advWriteErr.style.display = "inline";
+                return;
+            }
+            try {
+                const res = await fetch("/plc_write", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        password: pollAuthToken,
+                        type: advType.value,
+                        addr: advAddr.value,
+                        value: advValue.value
+                    })
+                });
+                const data = await res.json();
+                if (res.ok && data.ok) {
+                    advWriteOk.style.display = "inline";
+                } else {
+                    advWriteErr.style.display = "inline";
+                }
+            } catch (e) {
+                advWriteErr.style.display = "inline";
+            }
+        });
+
+        pollCheckbox.addEventListener("change", function () {
+            if (!pollAuthOk) {
+                this.checked = false;
+                return;
+            }
             if (this.checked) {
                 xyInterval = setInterval(plc_xyl, 500);
                 plc_xyl();
@@ -883,6 +1221,11 @@
             }
         });
         function fillTableFRD(arr) {
+            if (!arr || arr.length === 0) 
+            {
+                console.log("Пустой массив FRD");
+                return; // Защита от пустого массива
+            }
             const tbody = document.querySelector('#frd-table tbody');
             tbody.innerHTML = '';
 
@@ -981,11 +1324,19 @@
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
 
+
+                // ТЕСТ: Если пришел пакет, где у всех элементов val = 0, это подозрительно
+                const allZeros = data.every(item => item.val === 0 || item.val === false);
+                if (allZeros && data.length > 0) {
+                    console.warn("Внимание: Получен пакет, где все значения = 0. Возможно, сбой связи PLC с сервером опроса.");
+                    return; // Раскомментируйте, если не хотите обновлять экран "нулями"
+                }
+
                 if (!Array.isArray(data) || data.length === 0) {
                     console.warn("Пустой пакет XY");
                     return;
                 }
-
+                console.log("data", data);
                 // 1. Поиск конкретных значений (как у тебя было)
                 const find = (type, dec) => data.find(x => x.type === type && x.addr_dec === dec)?.val;
 
@@ -1002,6 +1353,16 @@
                     el.classList.remove("active");
                 } else {
                     el.classList.add("active");
+                }
+                const conveyorCard = document.getElementById("conveyor-card");
+                if (conveyorCard) {
+                    if (x22) {
+                        conveyorCard.classList.remove("conveyor-moving");
+                        conveyorCard.classList.add("conveyor-stopped");
+                    } else {
+                        conveyorCard.classList.add("conveyor-moving");
+                        conveyorCard.classList.remove("conveyor-stopped");
+                    }
                 }
                 document.getElementById('_X22').classList.toggle("active", x22);
                 document.getElementById('_X24').classList.toggle("active", !x24);
@@ -1028,7 +1389,11 @@
                 document.getElementById('chain-error').textContent = "Нет связи · " + e.message;
             }
         }
+        fetchEventLog();
+        setInterval(fetchEventLog, 1000);
         update();
+        plc_xyl();
+
     </script>
 </body>
 
