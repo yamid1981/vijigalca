@@ -1,9 +1,8 @@
-from pymodbus.client.sync import ModbusTcpClient
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pymcprotocol import Type3E
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, send_from_directory
 import pandas as pd
 import webbrowser
 from sqlalchemy import create_engine
@@ -12,21 +11,20 @@ import logging
 import warnings
 from urllib.parse import quote_plus
 from datetime import datetime, timedelta
+from collections import deque
+import json
 warnings.filterwarnings("ignore", category=UserWarning, message="pandas only supports SQLAlchemy")
-IP_ADDR = "192.168.161.1"
-PORT  = 5000
-PORT1 = 5001
-PORT2 = 5002
-PORT3 = 5003
-PORT4 = 5004
 IP = "192.168.161.1"
 PORTS = [5000, 5001, 5002, 5003, 5004]
 TOTAL_D = 8000
 TOTAL_R = 31200
+# Пароль для расширенных функций (поменяйте при необходимости)
+ADVANCED_PASSWORD = "6561"
+# Лог событий (сервер)
+EVENT_LOG_PATH = "event_log.jsonl"
+EVENT_POLL_INTERVAL = 0.5
 # Увеличиваем размер чанка до максимально стабильного для iQ-F/Q
 CHUNK_SIZE = 450 #с большим значением не работает
-TOTAL_WORDS_D = 8000
-TOTAL_WORDS_RD = 31200
 # Создаем глобальный кэш для данных ПЛК
 TAGS = {
 'SD': {
@@ -383,26 +381,24 @@ TAGS = {
 users = {}  # {ip: {"hostname": "...", "last_seen": datetime, "user_agent": "...", "count": N}}
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
-# --- НАСТРОЙКИ ПЛК--
-SD_OFFSET = 20480 #holding
-DEVICES = [{"id": "PLC_01", "ip": "192.168.161.1", "port": 502}]
-RD_RANGES = [    (0,   100),  ]
-RSD_RANGES = [
-    (SD_OFFSET + 0,   1),   # SD0
-    (SD_OFFSET + 200, 4),   # SD200..SD203
-    (SD_OFFSET + 600, 13),  # SD600..SD612
 
-    (SD_OFFSET + 210, 7),   # SD210..SD216 (часы)
-    (SD_OFFSET + 519, 1),   # SD519
-    (SD_OFFSET + 523, 3),   # SD523..SD525
-]
+# События (X/Y/L) на сервере
+EVENT_LOG = deque(maxlen=200)  # [{time, tag, name}]
+EVENT_LOCK = threading.Lock()
+EVENT_INITIALIZED = False
+EVENT_PREV = {
+    "RX": {},
+    "RY": {},
+    "RL": {}
+}
+# --- НАСТРОЙКИ ПЛК--
+DEVICES = [{"id": "PLC_01", "ip": "192.168.161.1", "port": 502}]
 # ================== НАСТРОЙКИ ==================
 SERVER = r'192.168.149.238\SQLEXPRESS'
 DATABASE = 'yamid'
 USERNAME = 'klient'
 PASSWORD = '1234567'
 DRIVER = 'ODBC Driver 17 for SQL Server'
-clients = {dev["id"]: ModbusTcpClient(dev["ip"], port=dev["port"], timeout=2) for dev in DEVICES}
 conn_params = quote_plus(
     f"DRIVER={{{DRIVER}}};"
     f"SERVER={SERVER};"
@@ -440,60 +436,18 @@ def parallel_read(device, total_words):
                 raise
 
         return result
-def red_slmp_fast():
+all_data_d = []
+all_data_rd = []
+CHUNK_SIZE = 450 #с большим значением не работает
+TOTAL_WORDS_D = 8000
+TOTAL_WORDS_RD = 31200       
+def red_slmp():
     try:
         start = time.perf_counter()
 
-        # Параллельное чтение больших областей
-        all_d = parallel_read("D", TOTAL_D)
-        all_r = parallel_read("R", TOTAL_R)
-
         # Однопоточные мелкие чтения (не критично)
         mc = Type3E()
-        mc.connect(IP, 5000)
-
-        rx = mc.batchread_bitunits("X0", 43)
-        ry = mc.batchread_bitunits("Y0", 6)
-        rl = mc.batchread_bitunits("L0", 58)
-        rm = mc.batchread_bitunits("M0", 528)
-        rc = mc.batchread_wordunits("CN30", 111)
-
-        SD_LIST = [0,200,201,203,600,604,606,607,608,609,610,611,612,210,211,212,213,214,215,216,519,523,524,525]
-        max_sd = max(SD_LIST)
-        sd_range = mc.batchread_wordunits("SD0", max_sd+1)
-        rsd = {addr: sd_range[addr] & 0xFFFF for addr in SD_LIST}
-
-        mc.close()
-
-        duration = time.perf_counter() - start
-        print(f"Параллельный опрос завершён за {duration:.4f} сек.")
-
-        return {
-            "D": all_d,
-            "RD": all_r,
-            "X": [bool(x) for x in rx],
-            "Y": [bool(y) for y in ry],
-            "L": [bool(l) for l in rl],
-            "M": [bool(m) for m in rm],
-            "C": rc,
-            "SD": rsd
-        }
-    except Exception as e:
-        print(f"Ошибка: {e}")
-    finally:
-        mc.close()    
-def red_slmp():
- 
-    SD_LIST = [0, 200, 201, 203, 600, 604, 606, 607, 608, 609, 610, 611, 612, 210, 211, 212, 213, 214, 215, 216, 519, 523, 524, 525]
-    mc = Type3E() 
-    mc.connect("192.168.161.1", 5000)
-
-    all_data_d = []
-    all_data_rd = []
-
-    try:
-        start_time = time.perf_counter()
-
+        mc.connect(IP, 5001)
         # Чтение D (теперь меньше итераций)
         for i in range(0, TOTAL_WORDS_D, CHUNK_SIZE):
             size = min(CHUNK_SIZE, TOTAL_WORDS_D - i)
@@ -507,38 +461,87 @@ def red_slmp():
             chunk = [v & 0xFFFF for v in mc.batchread_wordunits(f"R{i}", size)]
             all_data_rd.extend(chunk)
 
-        # Биты читаем пачками (можно тоже объединять, если адреса рядом)
-        rx_bits = mc.batchread_bitunits("X0", 43)
-        ry_bits = mc.batchread_bitunits("Y0", 6)
-        rl_bits = mc.batchread_bitunits("L0", 58)
-        rm_bits = mc.batchread_bitunits("M0", 528)
-        rc_word = mc.batchread_wordunits("CN30", 111) 
-
-        # SD чтение
+        rx = mc.batchread_bitunits("X0", 43)
+        if not rx:
+            # Попробуем сделать еще одну попытку чтения (ретрай)
+            try:
+                rx = mc.batchread_bitunits("X0", 43)
+                if not rx:
+                    return None
+            except Exception as e:
+                print("Вторая попытка опроса X неудачна:", e)
+                return None
+        ry = mc.batchread_bitunits("Y0", 6)
+        if not ry:
+            try:
+                ry = mc.batchread_bitunits("Y0", 6)
+                if not ry:
+                    return None
+            except Exception as e:
+                print("Вторая попытка опроса Y неудачна:", e)
+                return None
+        rl = mc.batchread_bitunits("L0", 58)
+        if not rl:
+            try:
+                rl = mc.batchread_bitunits("L0", 58)
+                if not rl:
+                    return None
+            except Exception as e:
+                print("Вторая попытка опроса L неудачна:", e)
+                return None
+        rm = mc.batchread_bitunits("M0", 528)
+        if not rm:
+            try:
+                rm = mc.batchread_bitunits("M0", 528)
+                if not rm:
+                    return None
+            except Exception as e:
+                print("Вторая попытка опроса M неудачна:", e)
+                return None
+        rc = mc.batchread_wordunits("CN30", 111)
+        if not rc:
+            try:
+                rc = mc.batchread_wordunits("CN30", 111)
+                if not rc:
+                    return None
+            except Exception as e:
+                print("Вторая попытка опроса C неудачна:", e)
+                return None
+            try:
+                rsd = mc.batchread_wordunits("SD0", max_sd+1)
+                if not rsd:
+                    return None
+            except Exception as e:
+                print("Вторая попытка опроса SD неудачна:", e)
+                return None
+        SD_LIST = [0,200,201,203,600,604,606,607,608,609,610,611,612,210,211,212,213,214,215,216,519,523,524,525]
         max_sd = max(SD_LIST)
-        sd_range = mc.batchread_wordunits("SD0", max_sd + 1)
-        rsd_values = {addr: (sd_range[addr] & 0xFFFF) for addr in SD_LIST}
+        sd_range = mc.batchread_wordunits("SD0", max_sd+1)
+        if not sd_range:
+            try:
+                sd_range = mc.batchread_wordunits("SD0", max_sd+1)
+                if not sd_range:
+                    return None
+            except Exception as e:
+                print("Вторая попытка опроса SD неудачна:", e)
+                return None
+        rsd = {addr: sd_range[addr] & 0xFFFF for addr in SD_LIST}
 
-        duration = time.perf_counter() - start_time
+        mc.close()
 
-        # Печатаем только статистику (печать данных тормозит цикл)
+        duration = time.perf_counter() - start
+        print(f"Опрос завершён за {duration:.4f} сек.")
 
-        results = {
-            "X": [bool(b) for b in rx_bits], 
-            "Y": [bool(b) for b in ry_bits],
-            "C": rc_word,
-            "L": [bool(b) for b in rl_bits],
-            "M": [bool(b) for b in rm_bits],
-            "SD": rsd_values, # Используйте словарь с конкретными SD, а не весь срез sd_range
+        return {
             "D": all_data_d,
-            "RD": all_data_rd
+            "RD":all_data_rd,
+            "X": [bool(x) for x in rx],
+            "Y": [bool(y) for y in ry],
+            "L": [bool(l) for l in rl],
+            "M": [bool(m) for m in rm],
+            "C": rc,
+            "SD": rsd
         }
-
-
-        # Печатаем статистику в консоль для контроля
-        print(f"Опрос завершен за {duration:.4f} сек.")
-
-        return results
     except Exception as e:
         print(f"Ошибка: {e}")
     finally:
@@ -558,44 +561,11 @@ def make_tag(tag_type, addr, val):
     }
 
 
-# ---------- RX ----------
-def map_rx(bits):
-    limit = min(len(bits), 40)
-    return [make_tag("RX", i, bits[i]) for i in range(limit)]
-
-
-# ---------- RY ----------
-def map_ry(bits):
-    limit = min(len(bits), 6)
-    return [make_tag("RY", i, bits[i]) for i in range(limit)]
-
-
-# ---------- RC ----------
-def map_rc(values):
-    # PLC адреса 30..157 (128 регистров)
-    limit = min(len(values), 128)
-    return [make_tag("RC", 30 + i, values[i]) for i in range(limit)]
-
-
-# ---------- RL ----------
-def map_rl(values):
-    limit = min(len(values), 64)
-    return [make_tag("RL", i, values[i]) for i in range(limit)]
-
-
-# ---------- RM ----------
-def map_rm(bits):
-    limit = min(len(bits), 600)
-    return [make_tag("RM", i, bits[i]) for i in range(limit)]
-
-
-# ---------- RD ----------
-def map_rd(values):
-    return [make_tag("RD", i, values[i]) for i in range(len(values))]
-
-# ---------- R ----------
-def map_frd(values):
-    return [make_tag("FRD", i, values[i]) for i in range(len(values))]
+def map_list(tag_type, values, limit=None, offset=0):
+    if limit is None:
+        limit = len(values)
+    limit = min(len(values), limit)
+    return [make_tag(tag_type, offset + i, values[i]) for i in range(limit)]
 
 # ---------- SD----------
 def map_sd(values):
@@ -606,107 +576,101 @@ def map_sd(values):
 def build_scada_json(data):
     # Теги, которые нужно фильтровать (только с именами)
     filtered_parts = (
-        map_rx(data[0]) +
-        map_ry(data[1]) +
-        map_rc(data[2]) +
-        map_rl(data[3]) +
-        map_rm(data[5]) +
-        map_sd(data[6]) )
+        map_list("RX", data[0], limit=40) +
+        map_list("RY", data[1], limit=6) +
+        map_list("RC", data[2], limit=128, offset=30) +
+        map_list("RL", data[3], limit=64) +
+        map_list("RM", data[5], limit=600) +
+        map_sd(data[6])
+    )
     
     # Оставляем только те, где name не пустое
     tags_with_names = [tag for tag in filtered_parts if tag["name"]]
     
     # Регистры D добавляем целиком без фильтрации
-    d_registers = map_rd(data[4])
-     # Регистры R добавляем целиком без фильтрации
-    r_registers = map_frd(data[7])   
+    d_registers = map_list("RD", data[4])
+    # Регистры R добавляем целиком без фильтрации
+    r_registers = map_list("FRD", data[7])
     return tags_with_names + d_registers + r_registers
 
 
-# --- ОПРОС ПЛК ---
-def read_m_registers(client, m_offset, count=600):
-    """Чтение больших объемов M регистров"""
-    all_values = []
-    chunk_size = 125
-    steps = (count + chunk_size - 1) // chunk_size
-    
+def append_event_to_disk(event):
     try:
-        for step in range(steps):
-            current_start = m_offset + step * chunk_size
-            end_address = min(current_start + chunk_size, m_offset + count)
-            
-            result = client.read_coils(current_start, end_address - current_start, unit=1)
-            if result.isError():
-                raise Exception(f"Ошибка чтения M регистров с адреса {current_start}: {result.message}")
-                
-            all_values.extend(result.bits[:end_address-current_start])
-        
-        return all_values
+        with open(EVENT_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(event, ensure_ascii=False) + "\n")
     except Exception as e:
-        print(f"Ошибка чтения M регистров: {e}")
-        return None
+        print(f"Ошибка записи лога: {e}")
 
-def read_blocks(client, blocks, unit=1):
-    result = []
-    for addr, count in blocks:
-        res = client.read_holding_registers(addr, count, unit=unit)
-        if res.isError() or not res.registers:
-            raise Exception(f"Ошибка чтения {addr}")
-        result.extend(res.registers)
-    return result
-def read_all_d_registers(client, total=8000, unit=1):
-    chunk = 125
-    result = []
 
-    for offset in range(0, total, chunk):
-        size = min(chunk, total - offset)
-        rd = client.read_holding_registers(offset, size, unit=unit)
+def update_event_log_bits(rx_bits, ry_bits, rl_bits):
+    global EVENT_INITIALIZED
+    now_full = datetime.now()
+    now = now_full.strftime("%H:%M:%S")
 
-        if rd.isError():
-            raise Exception(f"Ошибка чтения блока offset={offset}, size={size}")
+    def process(bits, tag_type, prefix, names):
+        for addr, val in enumerate(bits):
+            current = bool(val)
+            prev = bool(EVENT_PREV[tag_type].get(addr, False))
+            if EVENT_INITIALIZED and (not prev and current):
+                event = {
+                    "ts": now_full.isoformat(timespec="seconds"),
+                    "time": now,
+                    "tag": f"{prefix}{addr}",
+                    "name": names.get(addr, "")
+                }
+                EVENT_LOG.appendleft(event)
+                append_event_to_disk(event)
+            EVENT_PREV[tag_type][addr] = current
 
-        result.extend(rd.registers)
+    with EVENT_LOCK:
+        process(rx_bits, "RX", "X", TAGS.get("RX", {}))
+        process(ry_bits, "RY", "Y", TAGS.get("RY", {}))
+        process(rl_bits, "RL", "L", TAGS.get("RL", {}))
+        if not EVENT_INITIALIZED:
+            EVENT_INITIALIZED = True
 
-    return result
 
-def poll_device(client_not_used, device_info):
-    """
-    Теперь мы игнорируем старый объект client, 
-    так как red_slmp сама управляет соединениями через pymcprotocol.
-    """
-    try:
-        # Вызываем вашу новую быструю функцию
-        # Она возвращает словарь: {"X": [...], "Y": [...], "C": [...], ...}
-        data = red_slmp() #где то 1.2 сек
-        # data = red_slmp_fast() #где то 1.1 сек нет смысла оставлять такую сложность
-        
-        if not data:
-            return None
-
-        # Формируем список в том же порядке, в котором его ждет build_scada_json:
-        # [rx.bits, ry.bits, rc.registers, rl.bits, rd, rm_bits, rsd]
-        return [
-            data["X"],  
-            data["Y"],  
-            data["C"], 
-            data["L"],  
-            data["D"], 
-            data["M"],  
-            data["SD"], 
-            data["RD"]
-        ]
-       
-    except Exception as e:
-        print(f"Ошибка высокоскоростного опроса ПЛК: {e}")
-        return None
+def event_poll_loop():
+    while True:
+        try:
+            mc = Type3E()
+            mc.connect(IP, 5000)
+            try:
+                rx_bits = mc.batchread_bitunits("X0", 43)
+                ry_bits = mc.batchread_bitunits("Y0", 6)
+                rl_bits = mc.batchread_bitunits("L0", 58)
+                update_event_log_bits(rx_bits, ry_bits, rl_bits)
+            finally:
+                mc.close()
+        except Exception as e:
+            print(f"Ошибка опроса событий: {e}")
+        time.sleep(EVENT_POLL_INTERVAL)
 
 
 def get_plc_data():
     results = {}
-    for dev_id, client in clients.items():
-        data = poll_device(client, {"id": dev_id})
-        if data: results[dev_id] = {"tags": build_scada_json(data)}
-        else:    results[dev_id] = None
+    for dev in DEVICES:
+        dev_id = dev["id"]
+        try:
+            data = red_slmp() 
+            if not data:
+                results[dev_id] = None
+                continue
+
+            payload = [
+                data["X"],
+                data["Y"],
+                data["C"],
+                data["L"],
+                data["D"],
+                data["M"],
+                data["SD"],
+                data["RD"]
+            ]
+            results[dev_id] = {"tags": build_scada_json(payload)}
+        except Exception as e:
+            print(f"Ошибка опроса ПЛК: {e}")
+            results[dev_id] = None
     return results
 def resolve(ip):
     try:
@@ -721,32 +685,6 @@ def safe_query(query):
         return df
     except:
         return pd.DataFrame()
-
-# ================== ЗАГРУЗКА ДАННЫХ (без print) ==================
-def load_data_1(date_str):
-    query = f"""
-        SELECT Id, _data,
-               cep_inf, inf1_, inf2_, inf3_, inf4_, inf5_,
-               inf6_, inf7_, inf8_, inf9_, inf10_, inf11_, inf12_
-        FROM dbo.graf_{date_str}
-    """
-    return safe_query(query).fillna("").to_dict(orient='records')
-
-def load_data_2(date_str):
-    query = f"""
-        SELECT Id, na_lente, tek_stop
-        FROM dbo.ist_ostan_{date_str}
-    """
-    return safe_query(query).fillna("").to_dict(orient='records')
-
-def load_data_3(date_str):
-    query = f"""
-        SELECT Id, _data, cep_inf,
-               inf1_, inf2_, inf3_, inf4_, inf5_,
-               inf6_, inf7_, inf8_, inf9_, inf10_, inf11_, inf12_
-        FROM dbo.data_on_line{date_str}
-    """
-    return safe_query(query).fillna("").to_dict(orient='records')
 
 # ================== FLASK ==================
 app = Flask(__name__)
@@ -785,6 +723,10 @@ def log_user_to_console_and_memory():
 @app.route("/")
 def index():
     return render_template("index.html")
+
+@app.route("/favicon.ico")
+def favicon():
+    return send_from_directory("templates", "favicon.ico", mimetype="image/x-icon")
 @app.route("/plc")
 def plc_page():
     return render_template("plc.html")
@@ -794,9 +736,26 @@ def get_data():
     if not date_str:
         return jsonify({"graf_": [], "list_ostan": [], "data_on_line": []})
 
-    graf = load_data_1(date_str)
-    ostan = load_data_2(date_str)
-    online = load_data_3(date_str)
+    graf_query = f"""
+        SELECT Id, _data,
+               cep_inf, inf1_, inf2_, inf3_, inf4_, inf5_,
+               inf6_, inf7_, inf8_, inf9_, inf10_, inf11_, inf12_
+        FROM dbo.graf_{date_str}
+    """
+    ostan_query = f"""
+        SELECT Id, na_lente, tek_stop
+        FROM dbo.ist_ostan_{date_str}
+    """
+    online_query = f"""
+        SELECT Id, _data, cep_inf,
+               inf1_, inf2_, inf3_, inf4_, inf5_,
+               inf6_, inf7_, inf8_, inf9_, inf10_, inf11_, inf12_
+        FROM dbo.data_on_line{date_str}
+    """
+
+    graf = safe_query(graf_query).fillna("").to_dict(orient='records')
+    ostan = safe_query(ostan_query).fillna("").to_dict(orient='records')
+    online = safe_query(online_query).fillna("").to_dict(orient='records')
 
     return jsonify({
         "graf_": graf,
@@ -809,6 +768,69 @@ def plc_get():
     plc_data = get_plc_data()
     return jsonify(plc_data)
 
+@app.route("/event_log")
+def event_log():
+    with EVENT_LOCK:
+        return jsonify({"events": list(EVENT_LOG)})
+
+@app.route("/auth_check", methods=["POST"])
+def auth_check():
+    data = request.get_json(silent=True) or {}
+    password = data.get("password", "")
+    return jsonify({"ok": password == ADVANCED_PASSWORD})
+
+@app.route("/plc_write", methods=["POST"])
+def plc_write():
+    data = request.get_json(silent=True) or {}
+    password = data.get("password", "")
+    if password != ADVANCED_PASSWORD:
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+
+    reg_type = str(data.get("type", "")).upper().strip()
+    addr = data.get("addr")
+    value = data.get("value")
+
+    try:
+        addr = int(addr)
+        value = int(value)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "bad_input"}), 400
+
+    word_types = {"D", "R", "C"}
+    bit_types = {"M", "X", "Y", "L"}
+
+    if reg_type in word_types:
+        if not (0 <= value <= 0xFFFF):
+            return jsonify({"ok": False, "error": "value_range"}), 400
+        device = f"{reg_type}{addr}"
+        if reg_type == "C":
+            device = f"CN{addr}"
+        mc = Type3E()
+        try:
+            mc.connect(IP, 5000)
+            mc.batchwrite_wordunits(device, [value])
+            return jsonify({"ok": True})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+        finally:
+            mc.close()
+
+    if reg_type in bit_types:
+        if value not in (0, 1):
+            return jsonify({"ok": False, "error": "value_range"}), 400
+        device = f"{reg_type}{addr}"
+        mc = Type3E()
+        try:
+            mc.connect(IP, 5000)
+            mc.batchwrite_bitunits(device, [value])
+            return jsonify({"ok": True})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+        finally:
+            mc.close()
+
+    return jsonify({"ok": False, "error": "unknown_type"}), 400
+
 @app.route("/plc_XYL")
 def plc_XYL():
     mc = Type3E()
@@ -816,6 +838,8 @@ def plc_XYL():
         mc.connect("192.168.161.1", 5000)
 
         rx_bits = mc.batchread_bitunits("X0", 43)
+        if not rx_bits:
+            return jsonify({"error": "Failed to read X bits"}), 500
         ry_bits = mc.batchread_bitunits("Y0", 6)
         rl_bits = mc.batchread_bitunits("L0", 58)
         c102_val = mc.batchread_wordunits("CN102", 1)[0]
@@ -899,6 +923,7 @@ def open_browser():
 
 if __name__ == "__main__":
     threading.Timer(1.0, open_browser).start()
+    threading.Thread(target=event_poll_loop, daemon=True).start()
     app.run(
         host="0.0.0.0",
         port=80,
