@@ -533,7 +533,7 @@
 
             <div id="chain-error" class="chain-error"></div>
             <div class="advanced-panel" id="advanced-panel">
-                <label>Запись регистра (только после пароля):</label>
+                <label>Запись регистра (Внимание! Изменение регистров может привести к сбою работы конвейера):</label>
                 <div style="display:flex; align-items:center; gap:8px; flex-wrap: wrap; margin-top: 6px;">
                     <select id="adv-reg-type">
                         <option value="D">D</option>
@@ -991,6 +991,72 @@
             }
         }
 
+        function fillTableFRD(arr) {
+            const TAG = "[fillTableFRD]";
+            if (!Array.isArray(arr) || fillTableFRD._in_progress) return;
+
+            console.time(TAG);
+            fillTableFRD._in_progress = true;
+
+            try {
+                const tbody = document.querySelector('#frd-table tbody');
+                if (!tbody) return;
+
+                // 1. БЕЗОПАСНЫЙ ПОИСК MAX ADDR (без Math.max(...spread))
+                const map = {};
+                let maxAddr = 0;
+                for (let i = 0; i < arr.length; i++) {
+                    const item = arr[i];
+                    map[item.addr] = item.val;
+                    if (item.addr > maxAddr) maxAddr = item.addr;
+                }
+
+                const START = 24;
+                const BLOCK = 24;
+                let html = "";
+
+                // 2. ГЕНЕРАЦИЯ СТРОКИ (намного быстрее чем создание DOM-узлов)
+                for (let base = START; base + BLOCK <= maxAddr; base += BLOCK) {
+                    if (map[base] === undefined && map[base + 1] === undefined) continue;
+
+                    const w = (base - START) / BLOCK;
+                    const stage = (typeof STAGES !== 'undefined' && STAGES[w]) ? STAGES[w] : (w < 29 ? `Этап ${w}` : "Выпущена");
+
+                    // Внутренняя функция для строк (инлайн для скорости)
+                    const getStr = (s, e) => {
+                        let res = "";
+                        for (let i = s; i <= e; i++) {
+                            const v = map[base + i] || 0;
+                            const c1 = v & 0xFF, c2 = (v >> 8) & 0xFF;
+                            res += (c1 < 32 ? ' ' : String.fromCharCode(c1)) + (c2 < 32 ? ' ' : String.fromCharCode(c2));
+                        }
+                        return res.trim();
+                    };
+
+                    html += `<tr>
+                <td>${map[base] || 0}/${map[base + 1] || 0}/${map[base + 2] || 0}</td>
+                <td>${map[base + 3] || 0}:${map[base + 4] || 0}:${map[base + 5] || 0}</td>
+                <td>${stage}</td>
+                <td>${map[base + 6] || 0}</td>
+                <td>${map[base + 7] || 0}</td>
+                <td>${getStr(8, 18)}</td>
+                <td>${getStr(19, 21)}</td>
+                <td>${map[base + 22] || 0}</td>
+            </tr>`;
+                }
+
+                // 3. ВСТАВКА ВСЕЙ ТАБЛИЦЫ РАЗОМ
+                tbody.innerHTML = html;
+
+            } catch (e) {
+                console.error(TAG, "Ошибка:", e.message);
+            } finally {
+                fillTableFRD._in_progress = false;
+                console.timeEnd(TAG);
+            }
+        }
+
+
         async function fetchEventLog() {
             const logEl = document.getElementById("event-log");
             if (!logEl) return;
@@ -1220,105 +1286,23 @@
                 xyInterval = null;
             }
         });
-        function fillTableFRD(arr) {
-            if (!arr || arr.length === 0) 
-            {
-                console.log("Пустой массив FRD");
-                return; // Защита от пустого массива
+
+
+
+        // Вынесите парсинг строк отдельно, чтобы не плодить функции в цикле
+        function parsePLCString(map, start, end) {
+            let s = "";
+            for (let i = start; i <= end; i++) {
+                const v = map[i] || 0;
+                const c1 = v & 0xFF, c2 = (v >> 8) & 0xFF;
+                s += (c1 < 32 ? ' ' : String.fromCharCode(c1)) + (c2 < 32 ? ' ' : String.fromCharCode(c2));
             }
-            const tbody = document.querySelector('#frd-table tbody');
-            tbody.innerHTML = '';
-
-            arr = arr.sort((a, b) => a.addr - b.addr);
-
-            const map = {};
-            for (const w of arr) map[w.addr] = w.val;
-
-            const START = 24;
-            const BLOCK = 24;
-
-            const MODEL_START = 8;
-            const MODEL_END = 18;
-
-            const BASE_START = 19;
-            const BASE_END = 21;
-
-            const maxAddr = Math.max(...arr.map(x => x.addr));
-
-            for (let base = START; base + BLOCK <= maxAddr; base += BLOCK) {
-
-                // пустая запись — пропускаем
-                if (!map[base] && !map[base + 1] && !map[base + 2]) continue;
-
-                // ←←← ВОТ ТУТ ДОЛЖНО БЫТЬ!
-                const w = (base - START) / BLOCK;
-                const stage = (w < 29) ? STAGES[w] : "Выпущена";
-
-                const year = map[base + 0];
-                const month = map[base + 1];
-                const day = map[base + 2];
-                const hour = map[base + 3];
-                const minute = map[base + 4];
-                const second = map[base + 5];
-                const N = map[base + 6];
-                const PP = map[base + 7];
-
-                // --- модель ---
-                let model = "";
-                for (let i = MODEL_START; i <= MODEL_END; i++) {
-                    const val = map[base + i];
-                    const lo = val & 0xFF;
-                    const hi = (val >> 8) & 0xFF;
-
-                    let c1 = String.fromCharCode(lo);
-                    let c2 = String.fromCharCode(hi);
-
-                    if (c1.charCodeAt(0) < 32) c1 = ' ';
-                    if (c2.charCodeAt(0) < 32) c2 = ' ';
-
-                    model += c1 + c2;
-                }
-                model = model.trim();
-
-                // --- база ---
-                let baseName = "";
-                for (let i = BASE_START; i <= BASE_END; i++) {
-                    const val = map[base + i];
-                    const lo = val & 0xFF;
-                    const hi = (val >> 8) & 0xFF;
-
-                    let c1 = String.fromCharCode(lo);
-                    let c2 = String.fromCharCode(hi);
-
-                    if (c1.charCodeAt(0) < 32) c1 = ' ';
-                    if (c2.charCodeAt(0) < 32) c2 = ' ';
-
-                    baseName += c1 + c2;
-                }
-                baseName = baseName.trim();
-
-                const count = map[base + 22];
-
-                const dateStr = `${year}/${month}/${day}`;
-                const timeStr = `${hour}:${minute}:${second}`;
-
-                const row = document.createElement('tr');
-                row.innerHTML = `
-            <td>${dateStr}</td>
-            <td>${timeStr}</td>
-            <td>${stage}</td>
-            <td>${N}</td>
-            <td>${PP}</td>
-            <td>${model}</td>
-            <td>${baseName}</td>
-            <td>${count}</td>
-        `;
-
-                tbody.appendChild(row);
-            }
+            return s.trim();
         }
+
+
         // Обработчик опроса данных из JSON
-        async function plc_xyl() {
+        async function plc_xyl() {//время опроса 500мс если больше то пропуск сработок
             try {
                 const res = await fetch('plc_XYL');
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1332,11 +1316,7 @@
                     return; // Раскомментируйте, если не хотите обновлять экран "нулями"
                 }
 
-                if (!Array.isArray(data) || data.length === 0) {
-                    console.warn("Пустой пакет XY");
-                    return;
-                }
-                console.log("data", data);
+                //                console.log("data", data);
                 // 1. Поиск конкретных значений (как у тебя было)
                 const find = (type, dec) => data.find(x => x.type === type && x.addr_dec === dec)?.val;
 
