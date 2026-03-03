@@ -601,45 +601,93 @@ def append_event_to_disk(event):
     except Exception as e:
         print(f"Ошибка записи лога: {e}")
 
-
-def update_event_log_bits(rx_bits, ry_bits, rl_bits):
+def update_event_log_bits(rx_bits, ry_bits, rl_bits, c102):
     global EVENT_INITIALIZED
+    # Проверка на пустые данные
+    if not rx_bits or not ry_bits or not rl_bits:
+        print(f"Пропуск цикла: пустые данные X={len(rx_bits) if rx_bits else None}, Y={len(ry_bits) if ry_bits else None}, L={len(rl_bits) if rl_bits else None}")
+        return
+    
     now_full = datetime.now()
     now = now_full.strftime("%H:%M:%S")
-
-    def process(bits, tag_type, prefix, names):
-        for addr, val in enumerate(bits):
-            current = bool(val)
-            prev = bool(EVENT_PREV[tag_type].get(addr, False))
-            if EVENT_INITIALIZED and (not prev and current):
-                event = {
-                    "ts": now_full.isoformat(timespec="seconds"),
-                    "time": now,
-                    "tag": f"{prefix}{addr}",
-                    "name": names.get(addr, "")
-                }
-                EVENT_LOG.appendleft(event)
-                append_event_to_disk(event)
-            EVENT_PREV[tag_type][addr] = current
-
+    
     with EVENT_LOCK:
+        # --- ПЕРВАЯ ИНИЦИАЛИЗАЦИЯ ---
+        if not EVENT_INITIALIZED:
+            # Валидация: проверяем, что получили ожидаемое количество бит
+            if len(rx_bits) != 43 or len(ry_bits) != 6 or len(rl_bits) != 58:
+                print(f"Ошибка инициализации: неожиданная длина X={len(rx_bits)}, Y={len(ry_bits)}, L={len(rl_bits)}")
+                return
+                
+            EVENT_PREV["RX"] = {i: bool(v) for i, v in enumerate(rx_bits)}
+            EVENT_PREV["RY"] = {i: bool(v) for i, v in enumerate(ry_bits)}
+            EVENT_PREV["RL"] = {i: bool(v) for i, v in enumerate(rl_bits)}
+            EVENT_PREV["CN102"] = c102  # ← инициализация CN102
+            EVENT_INITIALIZED = True
+            print(f"Инициализация EVENT_PREV завершена: X={len(rx_bits)}, Y={len(ry_bits)}, L={len(rl_bits)}, CN102={c102}")
+            return  # выходим, чтобы не логировать первый цикл
+        
+        # --- ОБРАБОТКА ---
+        def process(bits, tag_type, prefix, names):
+            for addr, val in enumerate(bits):
+                current = bool(val)
+                
+                # сли адрес раньше не встречался, 
+                # инициализируем его без логирования
+                if addr not in EVENT_PREV[tag_type]:
+                    EVENT_PREV[tag_type][addr] = current
+                    continue  # пропускаем логирование для новых адресов
+                
+                prev = EVENT_PREV[tag_type][addr]
+                
+                if prev != current:
+                    direction = "↑" if current else "↓"
+                    event = {
+                        "ts": now_full.isoformat(timespec="seconds"),
+                        "time": now,
+                        "tag": f"{prefix}{addr}",
+                        "name": f"{direction} {names.get(addr, '')}".strip()
+                    }
+                    EVENT_LOG.appendleft(event)
+                    append_event_to_disk(event)
+                    EVENT_PREV[tag_type][addr] = current
+        
         process(rx_bits, "RX", "X", TAGS.get("RX", {}))
         process(ry_bits, "RY", "Y", TAGS.get("RY", {}))
         process(rl_bits, "RL", "L", TAGS.get("RL", {}))
-        if not EVENT_INITIALIZED:
-            EVENT_INITIALIZED = True
+        
+        # --- ОБРАБОТКА CN102 ---
+        prev_c102 = EVENT_PREV.get("CN102")
+        if prev_c102 is None:
+            # Если почему-то не инициализировано
+            EVENT_PREV["CN102"] = c102
+        elif prev_c102 != c102:
+            # Значение изменилось — логируем
+            event = {
+                "ts": now_full.isoformat(timespec="seconds"),
+                "time": now,
+                "tag": "CN102",
+                "name": f"{prev_c102} → {c102}"
+            }
+            EVENT_LOG.appendleft(event)
+            append_event_to_disk(event)
+            EVENT_PREV["CN102"] = c102
+            print(f"[{now}] CN102 изменился: {prev_c102} → {c102}")
+        
+        print(f"[{now}] Опрос завершен, событий в буфере: {len(EVENT_LOG)}")
 
 
 def event_poll_loop():
     while True:
         try:
             mc = Type3E()
-            mc.connect(IP, 5000)
+            mc.connect(IP, 5002)
             try:
                 rx_bits = mc.batchread_bitunits("X0", 43)
                 ry_bits = mc.batchread_bitunits("Y0", 6)
                 rl_bits = mc.batchread_bitunits("L0", 58)
-                update_event_log_bits(rx_bits, ry_bits, rl_bits)
+                c102_val = mc.batchread_wordunits("CN102", 1)[0]
+                update_event_log_bits(rx_bits, ry_bits, rl_bits, c102_val)
             finally:
                 mc.close()
         except Exception as e:
@@ -835,7 +883,7 @@ def plc_write():
 def plc_XYL():
     mc = Type3E()
     try:
-        mc.connect("192.168.161.1", 5000)
+        mc.connect("192.168.161.1", 5003)
 
         rx_bits = mc.batchread_bitunits("X0", 43)
         if not rx_bits:
