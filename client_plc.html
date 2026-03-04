@@ -3,476 +3,14 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="static/css/style_plc.css" type="text/css">
     <title>PLC Diagnostic</title>
     <style>
-        body {
-            font-family: 'Segoe UI', sans-serif;
-            background: #0f172a;
-            color: #f8fafc;
-            margin: 10px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
 
-        .main-container {
-            width: 100%;
-            max-width: 60em;
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-        }
-
-        .card {
-            background: #1e293b;
-            border-radius: 12px;
-            padding: 15px;
-            border: 1px solid #334155;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-        }
-
-        h3 {
-            color: #38bdf8;
-            margin: 0 0 10px 0;
-            font-size: 1.1em;
-            border-bottom: 1px solid #334155;
-            padding-bottom: 5px;
-            display: flex;
-            justify-content: space-between;
-        }
-
-        .bits-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
-            gap: 6px;
-        }
-
-        .bit-box {
-            font-size: 10px;
-            padding: 6px 2px;
-            text-align: center;
-            border-radius: 6px;
-            background: #334155;
-            color: #94a3b8;
-            cursor: help;
-            transition: 0.2s;
-        }
-
-        .bit-box.active {
-            background: #22c55e;
-            color: white;
-            box-shadow: 0 0 8px rgba(34, 197, 94, 0.3);
-        }
-
-        .reg-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-family: 'Cascadia Code', monospace;
-            font-size: 13px;
-        }
-
-        .reg-table tr:hover {
-            background: #2d3e5a !important;
-            cursor: help;
-        }
-
-        .reg-table td {
-            padding: 8px;
-            border-bottom: 1px solid #334155;
-        }
-
-        .reg-idx {
-            color: #64748b;
-            font-weight: bold;
-            width: 60px;
-        }
-
-        .reg-name {
-            color: #94a3b8;
-            text-align: left;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            max-width: 250px;
-        }
-
-        .reg-val {
-            color: #fbbf24;
-            text-align: right;
-            font-weight: bold;
-            font-size: 1.1em;
-        }
-
-        .reg-val.inactive {
-            color: #ef4444;
-        }
-
-        #status-bar {
-            width: 100%;
-            max-width: 800px;
-            padding: 10px;
-            border-radius: 8px;
-            margin-bottom: 10px;
-            text-align: center;
-            font-weight: bold;
-            background: #065f46;
-            color: #34d399;
-            transition: 0.5s;
-        }
-
-        .scroll {
-            max-height: 600px;
-            overflow-y: auto;
-            border: 1px solid #334155;
-            border-radius: 4px;
-        }
-
-        .reg-table td {
-            padding: 4px 8px;
-            border-bottom: 1px solid #334155;
-        }
-
-        .reg-table td:nth-child(4) {
-            max-width: 220px;
-            white-space: normal;
-            color: #94a3b8;
-        }
-
-        .reg-val {
-            min-width: 80px;
-        }
-
-        @keyframes pulse {
-            0% {
-                transform: scale(1);
-                opacity: 1;
-            }
-
-            50% {
-                transform: scale(1.2);
-                opacity: 0.7;
-            }
-
-            100% {
-                transform: scale(1);
-                opacity: 1;
-            }
-        }
-
-        .frd-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-family: Consolas, monospace;
-            font-size: 14px;
-            background: #0f172a;
-            color: #e2e8f0;
-        }
-
-        .frd-table th {
-            background: #1e293b;
-            padding: 8px;
-            border-bottom: 2px solid #334155;
-            text-align: left;
-        }
-
-        .frd-table td {
-            padding: 6px 8px;
-            border-bottom: 1px solid #334155;
-        }
-
-        .frd-table tr:nth-child(even) {
-            background: #1e2533;
-        }
-
-        .frd-table tr:hover {
-            background: #334155;
-        }
-
-        .conveyor-card {
-            background: linear-gradient(135deg, #1e3a5f, #0f2a4a);
-            padding: 18px;
-            border-radius: 14px;
-            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
-            color: #e5e7eb;
-        }
-
-        .conveyor-card.conveyor-moving {
-            background: linear-gradient(120deg, #1e3a5f, #0f2a4a, #1e3a5f);
-            background-size: 200% 200%;
-            animation: conveyorFlow 2.5s linear infinite;
-            box-shadow: 0 0 18px rgba(34, 197, 94, 0.35);
-        }
-
-        .conveyor-card.conveyor-stopped {
-            background: linear-gradient(135deg, #2a3544, #1a2433);
-            box-shadow: 0 0 18px rgba(239, 68, 68, 0.25);
-        }
-
-        @keyframes conveyorFlow {
-            0% {
-                background-position: 0% 50%;
-            }
-
-            100% {
-                background-position: 100% 50%;
-            }
-        }
-
-        .conveyor-belt {
-            height: 28px;
-            border-radius: 999px;
-            background: repeating-linear-gradient(90deg,
-                    #0f172a 0px,
-                    #0f172a 18px,
-                    #22c55e 18px,
-                    #22c55e 28px);
-            background-size: 56px 100%;
-            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.45);
-            opacity: 0.75;
-            margin: 8px 0 16px 0;
-        }
-
-        .conveyor-card.conveyor-moving .conveyor-belt {
-            animation: beltMove 1s linear infinite;
-            opacity: 1;
-        }
-
-        .conveyor-card.conveyor-stopped .conveyor-belt {
-            filter: grayscale(0.6);
-            opacity: 0.5;
-        }
-
-        @keyframes beltMove {
-            0% {
-                background-position: 0 0;
-            }
-
-            100% {
-                background-position: 56px 0;
-            }
-        }
-
-        .event-log {
-            max-height: 220px;
-            overflow-y: auto;
-            border-top: 1px solid #334155;
-            margin-top: 10px;
-            padding-top: 8px;
-            font-family: "Cascadia Code", monospace;
-            font-size: 12px;
-        }
-
-        .event-log-item {
-            display: flex;
-            gap: 8px;
-            align-items: baseline;
-            padding: 4px 0;
-            border-bottom: 1px dashed #223048;
-        }
-
-        .event-time {
-            color: #94a3b8;
-            min-width: 66px;
-        }
-
-        .event-tag {
-            color: #22c55e;
-            font-weight: 700;
-            min-width: 36px;
-        }
-
-        .event-name {
-            color: #e2e8f0;
-            opacity: 0.9;
-        }
-
-        .card-title {
-            margin: 0 0 14px 0;
-            font-size: 1.4em;
-            font-weight: 600;
-            text-align: center;
-        }
-
-        .emoji {
-            font-size: 1.2em;
-        }
-
-        .conveyor-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-            gap: 18px;
-            padding: 10px;
-        }
-
-        .sensor-block {
-            text-align: center;
-        }
-
-        .sensor-block.wide {
-            grid-column: span 2;
-        }
-
-        .indicator-circle {
-            width: 70px;
-            height: 70px;
-            margin: 0 auto;
-            border-radius: 50%;
-            background: #374151;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 600;
-            font-size: 1.1em;
-            color: #d1d5db;
-            transition: 0.25s;
-            box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.4);
-        }
-
-        .indicator-circle.active {
-            background: #22c55e;
-            color: white;
-            box-shadow: 0 0 12px #22c55e;
-        }
-
-        .indicator-circle.inactive {
-            background: #ef4444;
-            color: white;
-            box-shadow: 0 0 12px #ef4444;
-        }
-
-        .direction-indicator {
-            width: 80px;
-            height: 80px;
-            margin: 0 auto;
-            border-radius: 50%;
-            background: #374151;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 2em;
-            transition: 0.25s;
-            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.4);
-        }
-
-        .indicator-label {
-            margin-top: 6px;
-            font-size: 0.9em;
-            opacity: 0.85;
-        }
-
-        .big-value {
-            font-size: 2.4em;
-            font-weight: bold;
-            color: #fbbf24;
-        }
-
-        .medium-value {
-            font-size: 1.8em;
-            color: #f59e0b;
-        }
-
-        .chain-error {
-            color: #f87171;
-            text-align: center;
-            margin-top: 12px;
-            min-height: 1.2em;
-        }
-
-        .auth-inline {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin: 10px 0;
-            flex-wrap: wrap;
-        }
-
-        .auth-inline input[type="password"] {
-            background: #0f172a;
-            color: #f8fafc;
-            border: 1px solid #334155;
-            border-radius: 6px;
-            padding: 4px 8px;
-            width: 140px;
-        }
-
-        .auth-input-wrap {
-            position: relative;
-            display: inline-flex;
-            align-items: center;
-        }
-
-        .auth-input-wrap input {
-            padding-right: 26px;
-        }
-
-        .auth-input-wrap .auth-check {
-            position: absolute;
-            right: 8px;
-            color: #22c55e;
-            font-weight: 700;
-            display: none;
-        }
-
-        .auth-input-wrap.error input {
-            border-color: #ef4444;
-        }
-
-        .auth-inline button {
-            background: #334155;
-            color: #e2e8f0;
-            border: 1px solid #475569;
-            border-radius: 6px;
-            padding: 4px 10px;
-            cursor: pointer;
-        }
-
-        .auth-error-text {
-            color: #ef4444;
-            font-size: 0.85em;
-            display: none;
-        }
-
-
-        .advanced-panel {
-            margin-top: 10px;
-            padding: 10px;
-            border: 1px dashed #334155;
-            border-radius: 8px;
-            display: none;
-        }
-
-        .advanced-panel label {
-            font-size: 0.9em;
-            color: #94a3b8;
-        }
-
-        .advanced-panel input,
-        .advanced-panel select {
-            background: #0f172a;
-            color: #f8fafc;
-            border: 1px solid #334155;
-            border-radius: 6px;
-            padding: 4px 8px;
-        }
-
-        .advanced-panel button {
-            background: #2563eb;
-            color: #e2e8f0;
-            border: 1px solid #1d4ed8;
-            border-radius: 6px;
-            padding: 4px 10px;
-            cursor: pointer;
-        }
-
-        .advanced-status {
-            margin-left: 10px;
-            font-weight: 600;
-            color: #22c55e;
-        }
-
-        .advanced-status.error {
-            color: #ef4444;
-        }
     </style>
 </head>
 
@@ -503,6 +41,9 @@
                 </label>
             </h3>
 
+            <div id="_1_tel">ПЕРЕДНЯЯ</div>
+            <div id="_2_tel">ЗАДНЯЯ</div>
+
             <div class="conveyor-belt" aria-hidden="true"></div>
             <div class="conveyor-grid">
 
@@ -524,7 +65,8 @@
                 <div class="sensor-block wide">
                     <div class="big-value" id="C102">--</div>
                     <div class="indicator-label">Текущее звено</div>
-
+                    <div class="medium-value" id="D714">--</div>
+                    <div class="indicator-label">Задание</div>
                     <div class="medium-value" id="D4000">--</div>
                     <div class="indicator-label">Перезапуск</div>
                 </div>
@@ -1318,14 +860,47 @@
 
                 //                console.log("data", data);
                 // 1. Поиск конкретных значений (как у тебя было)
-                const find = (type, dec) => data.find(x => x.type === type && x.addr_dec === dec)?.val;
+                // const find = (type, dec) => data.find(x => x.type === type && x.addr_dec === dec)?.val;
 
-                const x24 = find("X", 20);
-                const x25 = find("X", 21);
-                const x22 = find("X", 18);
-                const c102 = find("C", 102);
-                const d4000 = find("D", 4000);
-                console.log("X24", x24, "X25", x25, "X22", x22, "c102", c102, "d4000", d4000)
+                // const x24 = find("X", 20);
+                // const x25 = find("X", 21);
+                // const x22 = find("X", 18);
+                // const c102 = find("C", 102);
+                // const d4000 = find("D", 4000);
+                let x6, x7, x10, x11, x12, x13, x14, x15, x16, x17, x22, x24, x25, c102, d714, d4000, y0, y1, y2, y3, y5;
+
+                for (const item of data) {
+                    const key = item.type + item.addr_dec;
+                    switch (key) {
+                        case 'X6': x6 = item.val; break;
+                        case 'X7': x7 = item.val; break;
+                        case 'X8': x10 = item.val; break;
+                        case 'X9': x11 = item.val; break;
+                        case 'X10': x12 = item.val; break;
+                        case 'X11': x13 = item.val; break;
+                        case 'X12': x14 = item.val; break;
+                        case 'X13': x15 = item.val; break;
+                        case 'X14': x16 = item.val; break;
+                        case 'X15': x17 = item.val; break;
+                        case 'X18': x22 = item.val; break;
+                        case 'X20': x24 = item.val; break;
+                        case 'X21': x25 = item.val; break;
+                        case 'Y0': y0 = item.val; break;
+                        case 'Y1': y1 = item.val; break;
+                        case 'Y2': y2 = item.val; break;
+                        case 'Y3': y3 = item.val; break;
+                        case 'Y5': y5 = item.val; break;
+                        case 'C102': c102 = item.val; break;
+                        case 'D714': d714 = item.val; break;
+                        case 'D4000': d4000 = item.val; break;
+                    }
+                }
+
+                // Двигаем стойки
+                moveElement(1,c102);
+                if (c102 >= d714) moveElement(2,(c102 - d714));
+                else moveElement(2,0);
+
                 if (x22) document.getElementById('_X22').textContent = "ЦЕПЬ ОСТАНОВЛЕНА";
                 else document.getElementById('_X22').textContent = "ЦЕПЬ ДВИЖЕТСЯ";
                 const el = document.getElementById('_X22_');
@@ -1347,6 +922,7 @@
                 document.getElementById('_X22').classList.toggle("active", x22);
                 document.getElementById('_X24').classList.toggle("active", !x24);
                 document.getElementById('_X25').classList.toggle("active", !x25);
+
                 // 2. Массовое обновление визуализации через ID
                 for (const item of data) {
                     // Формируем ID так же, как при отрисовке (тип + восьмеричный адрес)
@@ -1361,6 +937,7 @@
                 }
 
                 document.getElementById('C102').textContent = c102;
+                document.getElementById('D714').textContent = d714;
                 document.getElementById('D4000').textContent = d4000;
 
                 document.getElementById('chain-error').textContent = '';
@@ -1368,6 +945,10 @@
                 console.error("Ошибка:", e);
                 document.getElementById('chain-error').textContent = "Нет связи · " + e.message;
             }
+        }
+        function moveElement(stoika, x) {
+            const element = document.getElementById(stoika === 1 ? '_1_tel' : '_2_tel');
+            element.style.left = x + 'em';
         }
         fetchEventLog();
         setInterval(fetchEventLog, 1000);
