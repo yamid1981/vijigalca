@@ -28,7 +28,7 @@
         </div>
         <div class="card conveyor-card conveyor-stopped" id="conveyor-card">
             <h3 class="card-title">
-                Мониторинг цепи конвейера <span class="emoji">🚛 🔗 🚚</span>
+                Мониторинг цепи конвейера <span class="emoji">🚛🚚🚛</span>
                 <label class="auth-inline">
                     <input type="checkbox" id="poll-x-checkbox" disabled>
                     Опрос Online 500мс
@@ -40,37 +40,35 @@
                     <span class="auth-error-text" id="poll-auth-err">неверно</span>
                 </label>
             </h3>
-
-            <div id="_1_tel">ПЕРЕДНЯЯ</div>
-            <div id="_2_tel">ЗАДНЯЯ</div>
-
-            <div class="conveyor-belt" aria-hidden="true"></div>
-            <div class="conveyor-grid">
-
-                <div class="sensor-block" style="margin-top: 2em;">
+            <div class="conveyor-belt" aria-hidden="true">
+                <div id="_1_tel">ПЕРЕДНЯЯ</div>
+                <div id="_2_tel">ЗАДНЯЯ</div>
+                <div id="_3_tel">ПЕРЕДНЯЯ</div>
+                <div id="_4_tel">ЗАДНЯЯ</div>
+                <div class="sensor-block" id="start_zvena">
+                    <div class="indicator-label">Начало</div>
                     <div class="indicator-circle" id="_X25">X25</div>
-                    <div class="indicator-label">Начало звена</div>
                 </div>
-
-                <div class="sensor-block" style="margin-top: 2em;">
+                <div class="sensor-block" id="end_zvena">
+                    <div class="indicator-label">Конец</div>
                     <div class="indicator-circle" id="_X24">X24</div>
-                    <div class="indicator-label">Конец звена</div>
-                </div>
 
-                <div class="sensor-block" style="margin-top: 2em;">
+                </div>
+                <div class="sensor-block" id="cep">
                     <div class="indicator-circle" id="_X22_">X22</div>
                     <div class="indicator-label" id="_X22">ЦЕПЬ</div>
                 </div>
+            </div>
 
-                <div class="sensor-block wide">
-                    <div class="big-value" id="C102">--</div>
-                    <div class="indicator-label">Текущее звено</div>
-                    <div class="medium-value" id="D714">--</div>
-                    <div class="indicator-label">Задание</div>
-                    <div class="medium-value" id="D4000">--</div>
-                    <div class="indicator-label">Перезапуск</div>
-                </div>
 
+
+            <div class="zad">
+                <div class="big-value" id="C102">--</div>
+                <div class="indicator-label">Текущее звено</div>
+                <div class="medium-value" id="D714">--</div>
+                <div class="indicator-label">Задание</div>
+                <div class="medium-value" id="D4000">--</div>
+                <div class="indicator-label">Перезапуск</div>
             </div>
 
             <div id="chain-error" class="chain-error"></div>
@@ -96,6 +94,7 @@
         </div>
         <div class="card">
             <h3>Лог событий (X/Y/L)</h3>
+            <button id="load-full-log">Большее истории</button>
             <div id="event-log" class="event-log"></div>
         </div>
         <!-- Y -->
@@ -176,6 +175,22 @@
         </div>
     </div>
     <script>
+        // Глобальные переменные для отслеживания состояния
+        let lastC102 = 0;
+        let activePair = 1; // 1 - работает пара (_1_tel, _2_tel), 2 - работает пара (_3_tel, _4_tel)
+
+        // Выносим поиск элементов из функции, чтобы не искать их 2 раза в секунду
+        const elementsCache = {};
+        function getCachedEl(id) {
+            if (!elementsCache[id]) {
+                elementsCache[id] = document.getElementById(id);
+            }
+            return elementsCache[id];
+        }
+
+        // Объект для хранения последних значений (чтобы не обновлять DOM зря)
+        let lastValues = {};
+
         let xyRendered = false;
         const STAGES = [
             "ПОДВАЛ",
@@ -598,26 +613,110 @@
             }
         }
 
+        let lastEventId = null; // Для отслеживания новых событий
 
         async function fetchEventLog() {
             const logEl = document.getElementById("event-log");
             if (!logEl) return;
+
             try {
                 const res = await fetch("/event_log");
-                if (!res.ok) return;
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
                 const data = await res.json();
                 const events = Array.isArray(data.events) ? data.events : [];
-                logEl.innerHTML = events.map(ev => `
-                    <div class="event-log-item">
-                        <span class="event-time">${ev.time || ""}</span>
-                        <span class="event-tag">${ev.tag || ""}</span>
-                        <span class="event-name">${ev.name || ""}</span>
-                    </div>
-                `).join("");
+
+                // БЕРЕМ ПЕРВЫЕ 100 (самые свежие), а не последние
+                // Т.к. сервер использует deque.appendleft() - новые события в начале списка
+                const freshEvents = events.slice(0, 100);
+
+                // Если событий нет - выходим
+                if (freshEvents.length === 0) {
+                    logEl.innerHTML = '<div class="event-log-item">Нет событий</div>';
+                    return;
+                }
+
+                // Оптимизация: используем DocumentFragment вместо строки
+                const fragment = document.createDocumentFragment();
+
+                // Проверяем, нужно ли полное обновление (если слишком много новых или первый запуск)
+                const currentCount = logEl.children.length;
+                const isInitial = currentCount === 0 || lastEventId === null;
+
+                if (isInitial || freshEvents.length > 50) {
+                    // Полная перерисовка (первичная загрузка или массовое обновление)
+                    fragment.append(...freshEvents.map(createEventElement));
+                    logEl.innerHTML = '';
+                    logEl.appendChild(fragment);
+                } else {
+                    // Инкрементальное обновление: добавляем только новые сверху
+                    const newEvents = freshEvents.filter(ev => ev.ts !== lastEventId);
+                    if (newEvents.length > 0) {
+                        // Добавляем новые в начало (они уже отсортированы по свежести)
+                        newEvents.reverse().forEach(ev => {
+                            logEl.insertBefore(createEventElement(ev), logEl.firstChild);
+                        });
+
+                        // Ограничиваем DOM: оставляем только 100 элементов (удаляем старые с конца)
+                        while (logEl.children.length > 100) {
+                            logEl.removeChild(logEl.lastChild);
+                        }
+                    }
+                }
+
+                // Запоминаем ID первого (самого свежего) события для следующего раза
+                lastEventId = freshEvents[0]?.ts || lastEventId;
+
             } catch (e) {
-                // ignore
+                console.error("Event log fetch failed:", e);
+                // Не очищаем старые данные при ошибке, показываем предупреждение
+                if (logEl && logEl.children.length === 0) {
+                    logEl.innerHTML = '<div class="event-log-item error">Ошибка загрузки лога</div>';
+                }
             }
         }
+
+        // Вспомогательная функция создания DOM-элемента (быстрее, чем innerHTML)
+        function createEventElement(ev) {
+            const div = document.createElement('div');
+            div.className = 'event-log-item';
+            div.dataset.ts = ev.ts; // Сохраняем timestamp для фильтрации
+
+            const time = document.createElement('span');
+            time.className = 'event-time';
+            time.textContent = ev.time || '--:--:--';
+
+            const tag = document.createElement('span');
+            tag.className = 'event-tag';
+            tag.textContent = ev.tag || '';
+
+            const name = document.createElement('span');
+            name.className = 'event-name';
+            name.textContent = ev.name || '';
+
+            div.append(time, tag, name);
+            return div;
+        }
+        // Кнопка "Загрузить полную историю"
+        document.getElementById('load-full-log')?.addEventListener('click', () => {
+            fetch("/event_log?from_file=1")
+                .then(r => r.json())
+                .then(data => {
+                    const events = (data.events || []).slice(0, 500); // ограничьте 500 для безопасности
+                    const frag = document.createDocumentFragment();
+                    frag.append(...events.map(createEventElement));
+                    document.getElementById("event-log").appendChild(frag);
+                });
+        });
+
+        // Улучшенный вариант: если нужно подгружать из файла историю при скролле
+        async function fetchEventLogExtended(loadFromFile = false) {
+            const url = loadFromFile ? "/event_log?from_file=1" : "/event_log";
+            const res = await fetch(url);
+            // ... остальная логика та же
+        }
+
+
         function fillTable(id, arr, prefix) {
             const table = document.getElementById(id);
             table.innerHTML = '';
@@ -857,16 +956,14 @@
                     console.warn("Внимание: Получен пакет, где все значения = 0. Возможно, сбой связи PLC с сервером опроса.");
                     return; // Раскомментируйте, если не хотите обновлять экран "нулями"
                 }
-
-                //                console.log("data", data);
-                // 1. Поиск конкретных значений (как у тебя было)
-                // const find = (type, dec) => data.find(x => x.type === type && x.addr_dec === dec)?.val;
-
-                // const x24 = find("X", 20);
-                // const x25 = find("X", 21);
-                // const x22 = find("X", 18);
-                // const c102 = find("C", 102);
-                // const d4000 = find("D", 4000);
+                // проверка на изменились ли данные с прошлого опроса если нет вон от сюда
+                // 1. Быстрая проверка на изменения
+                const dataString = JSON.stringify(data);
+                if (lastValues.raw === dataString) {
+                    // Данные не изменились, ничего не перерисовываем
+                    return;
+                }
+                lastValues.raw = dataString;
                 let x6, x7, x10, x11, x12, x13, x14, x15, x16, x17, x22, x24, x25, c102, d714, d4000, y0, y1, y2, y3, y5;
 
                 for (const item of data) {
@@ -897,9 +994,48 @@
                 }
 
                 // Двигаем стойки
-                moveElement(1,c102);
-                if (c102 >= d714) moveElement(2,(c102 - d714));
-                else moveElement(2,0);
+                // ЛОГИКА ОЧЕРЕДИ:
+                // Определяем момент переключения пар по сбросу C102 (когда счетчик уменьшился и стал <= 1)
+                // Если C102 сбросился (был больше, стал 0 или 1), переключаем активную пару
+                if (lastC102 > c102 && c102 <= 1 && lastC102 > 1) {
+                    activePair = activePair === 1 ? 2 : 1;
+                    console.log(`Переключение очереди: теперь работает пара ${activePair}`);
+                }
+                lastC102 = c102;
+
+                // Двигаем элементы в зависимости от активной пары
+                if (activePair === 1) {
+                    // === РАБОТАЕТ ПЕРВАЯ ПАРА (_1_tel, _2_tel) ===
+                    // Передняя стойка
+                    moveElement('_1_tel', c102);
+
+                    // Задняя стойка (с задержкой d714)
+                    if (c102 >= d714) {
+                        moveElement('_2_tel', c102 - d714);
+                    } else {
+                        moveElement('_2_tel', 0);
+                    }
+
+                    // Вторая пара ждет в очереди (сброшена в начальную позицию 0)
+                    moveElement('_3_tel', 0);
+                    moveElement('_4_tel', 0);
+
+                } else {
+                    // === РАБОТАЕТ ВТОРАЯ ПАРА (_3_tel, _4_tel) ===
+                    // Передняя стойка
+                    moveElement('_3_tel', c102);
+
+                    // Задняя стойка (с задержкой d714)
+                    if (c102 >= d714) {
+                        moveElement('_4_tel', c102 - d714);
+                    } else {
+                        moveElement('_4_tel', 0);
+                    }
+
+                    // Первая пара ждет в очереди (сброшена в начальную позицию 0)
+                    moveElement('_1_tel', 0);
+                    moveElement('_2_tel', 0);
+                }
 
                 if (x22) document.getElementById('_X22').textContent = "ЦЕПЬ ОСТАНОВЛЕНА";
                 else document.getElementById('_X22').textContent = "ЦЕПЬ ДВИЖЕТСЯ";
@@ -946,9 +1082,12 @@
                 document.getElementById('chain-error').textContent = "Нет связи · " + e.message;
             }
         }
-        function moveElement(stoika, x) {
-            const element = document.getElementById(stoika === 1 ? '_1_tel' : '_2_tel');
-            element.style.left = x + 'em';
+        // Универсальная функция перемещения элемента по ID
+        function moveElement(elementId, x) {
+            const element = document.getElementById(elementId);
+            if (element) {
+                element.style.left = x + 'em';
+            }
         }
         fetchEventLog();
         setInterval(fetchEventLog, 1000);
