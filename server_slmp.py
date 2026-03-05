@@ -21,7 +21,7 @@ TOTAL_R = 31200
 # Пароль для расширенных функций (поменяйте при необходимости)
 ADVANCED_PASSWORD = "6561"
 # Лог событий (сервер)
-EVENT_LOG_PATH = "event_log.jsonl"
+EVENT_LOG_PATH = r"c:\0\event_log.jsonl"
 EVENT_POLL_INTERVAL = 0.5
 # Увеличиваем размер чанка до максимально стабильного для iQ-F/Q
 CHUNK_SIZE = 450 #с большим значением не работает
@@ -383,7 +383,8 @@ log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 
 # События (X/Y/L) на сервере
-EVENT_LOG = deque(maxlen=200)  # [{time, tag, name}]
+# Было: deque(maxlen=200) — хранит ~2-5 минут
+EVENT_LOG = deque(maxlen=5000)  # Хранит ~1-2 часа активных событий
 EVENT_LOCK = threading.Lock()
 EVENT_INITIALIZED = False
 EVENT_PREV = {
@@ -442,6 +443,9 @@ CHUNK_SIZE = 450 #с большим значением не работает
 TOTAL_WORDS_D = 8000
 TOTAL_WORDS_RD = 31200       
 def red_slmp():
+    global all_data_d, all_data_rd
+    all_data_d = []  # ← Добавьте очистку!
+    all_data_rd = [] # ← Добавьте очистку!
     try:
         start = time.perf_counter()
 
@@ -506,13 +510,6 @@ def red_slmp():
                     return None
             except Exception as e:
                 print("Вторая попытка опроса C неудачна:", e)
-                return None
-            try:
-                rsd = mc.batchread_wordunits("SD0", max_sd+1)
-                if not rsd:
-                    return None
-            except Exception as e:
-                print("Вторая попытка опроса SD неудачна:", e)
                 return None
         SD_LIST = [0,200,201,203,600,604,606,607,608,609,610,611,612,210,211,212,213,214,215,216,519,523,524,525]
         max_sd = max(SD_LIST)
@@ -595,16 +592,29 @@ def build_scada_json(data):
 
 
 def append_event_to_disk(event):
-    try:
-        with open(EVENT_LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(json.dumps(event, ensure_ascii=False) + "\n")
-    except Exception as e:
-        print(f"Ошибка записи лога: {e}")
+    # Потокобезопасная буферизация
+    if not hasattr(append_event_to_disk, "buffer"):
+        append_event_to_disk.buffer = []
+        append_event_to_disk.last_flush = time.time()
+    
+    append_event_to_disk.buffer.append(event)
+    
+    # Сброс каждые 5 секунд или если накопилось 50 событий
+    if (time.time() - append_event_to_disk.last_flush > 5) or len(append_event_to_disk.buffer) >= 50:
+        try:
+            with open(EVENT_LOG_PATH, "a", encoding="utf-8") as f:
+                for ev in append_event_to_disk.buffer:
+                    f.write(json.dumps(ev, ensure_ascii=False) + "\n")
+            append_event_to_disk.buffer.clear()
+            append_event_to_disk.last_flush = time.time()
+        except Exception as e:
+            print(f"Ошибка записи лога: {e}")
 
-def update_event_log_bits(rx_bits, ry_bits, rl_bits, c102):
+
+def update_event_log_bits(rx_bits, ry_bits, rl_bits, c102,d714,d4000):
     global EVENT_INITIALIZED
     # Проверка на пустые данные
-    if not rx_bits or not ry_bits or not rl_bits:
+    if not rx_bits or not ry_bits or not d4000:
         print(f"Пропуск цикла: пустые данные X={len(rx_bits) if rx_bits else None}, Y={len(ry_bits) if ry_bits else None}, L={len(rl_bits) if rl_bits else None}")
         return
     
@@ -623,8 +633,10 @@ def update_event_log_bits(rx_bits, ry_bits, rl_bits, c102):
             EVENT_PREV["RY"] = {i: bool(v) for i, v in enumerate(ry_bits)}
             EVENT_PREV["RL"] = {i: bool(v) for i, v in enumerate(rl_bits)}
             EVENT_PREV["CN102"] = c102  # ← инициализация CN102
+            EVENT_PREV["D714"] = d714  # ← инициализация d714
+            EVENT_PREV["D4000"] = d4000  # ← инициализация d4000
             EVENT_INITIALIZED = True
-            print(f"Инициализация EVENT_PREV завершена: X={len(rx_bits)}, Y={len(ry_bits)}, L={len(rl_bits)}, CN102={c102}")
+            print(f"Инициализация EVENT_PREV завершена: X={len(rx_bits)}, Y={len(ry_bits)}, L={len(rl_bits)}, CN102={c102}, D714={d714},D4000={d4000}")
             return  # выходим, чтобы не логировать первый цикл
         
         # --- ОБРАБОТКА ---
@@ -687,7 +699,9 @@ def event_poll_loop():
                 ry_bits = mc.batchread_bitunits("Y0", 6)
                 rl_bits = mc.batchread_bitunits("L0", 58)
                 c102_val = mc.batchread_wordunits("CN102", 1)[0]
-                update_event_log_bits(rx_bits, ry_bits, rl_bits, c102_val)
+                d714_val = mc.batchread_wordunits("D714", 1)[0]
+                d4000_val = mc.batchread_wordunits("D4000", 1)[0]
+                update_event_log_bits(rx_bits, ry_bits, rl_bits, c102_val,d714_val,d4000_val)
             finally:
                 mc.close()
         except Exception as e:
@@ -818,8 +832,23 @@ def plc_get():
 
 @app.route("/event_log")
 def event_log():
-    with EVENT_LOCK:
-        return jsonify({"events": list(EVENT_LOG)})
+    """Возвращает события из памяти (быстро) + из файла (полная история)"""
+    # Можно передать ?from_file=1 чтобы принудительно читать файл
+    use_file = request.args.get('from_file', '0') == '1'
+    
+    if not use_file:
+        with EVENT_LOCK:
+            return jsonify({"events": list(EVENT_LOG), "source": "memory"})
+    
+    # Чтение из файла (последние 2000 записей)
+    try:
+        with open(EVENT_LOG_PATH, "r", encoding="utf-8") as f:
+            lines = f.readlines()[-2000:]  # последние 2000 строк
+            events = [json.loads(line) for line in lines if line.strip()]
+        return jsonify({"events": events, "source": "file"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route("/auth_check", methods=["POST"])
 def auth_check():
@@ -891,6 +920,7 @@ def plc_XYL():
         ry_bits = mc.batchread_bitunits("Y0", 6)
         rl_bits = mc.batchread_bitunits("L0", 58)
         c102_val = mc.batchread_wordunits("CN102", 1)[0]
+        d714_val = mc.batchread_wordunits("D714", 1)[0]
         d4000_val = mc.batchread_wordunits("D4000", 1)[0]
 
         result = []
@@ -928,6 +958,7 @@ def plc_XYL():
             })
         # C и D
         result.append({"type": "C", "addr_dec": 102, "val": c102_val})
+        result.append({"type": "D", "addr_dec": 714, "val": d714_val})
         result.append({"type": "D", "addr_dec": 4000, "val": d4000_val})
 
         return jsonify(result)
