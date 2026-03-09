@@ -41,10 +41,10 @@
                 </label>
             </h3>
             <div class="conveyor-belt" aria-hidden="true">
-                <div id="_1_tel">ПЕРЕДНЯЯ</div>
-                <div id="_2_tel">ЗАДНЯЯ</div>
-                <div id="_3_tel">ПЕРЕДНЯЯ</div>
-                <div id="_4_tel">ЗАДНЯЯ</div>
+                <div id="_1_tel">&nbsp&nbsp&nbsp&nbsp</div><!-- ПЕРЕДНЯЯ текущая-->
+                <div id="_2_tel">&nbsp&nbsp&nbsp&nbsp</div><!-- ЗАДНЯЯ текущая-->
+                <div id="_3_tel">&nbsp&nbsp&nbsp&nbsp</div><!-- ПЕРЕДНЯЯ из в очереди -->
+                <div id="_4_tel">&nbsp&nbsp&nbsp&nbsp</div><!-- ЗАДНЯЯ из очереди-->
                 <div class="sensor-block" id="start_zvena">
                     <div class="indicator-label">Начало</div>
                     <div class="indicator-circle" id="_X25">X25</div>
@@ -59,8 +59,6 @@
                     <div class="indicator-label" id="_X22">ЦЕПЬ</div>
                 </div>
             </div>
-
-
 
             <div class="zad">
                 <div class="big-value" id="C102">--</div>
@@ -94,7 +92,7 @@
         </div>
         <div class="card">
             <h3>Лог событий (X/Y/L)</h3>
-            <button id="load-full-log">Большее истории</button>
+            <button id="load-full-log" class="card" style="color: aliceblue;">Большее истории</button>
             <div id="event-log" class="event-log"></div>
         </div>
         <!-- Y -->
@@ -613,109 +611,6 @@
             }
         }
 
-        let lastEventId = null; // Для отслеживания новых событий
-
-        async function fetchEventLog() {
-            const logEl = document.getElementById("event-log");
-            if (!logEl) return;
-
-            try {
-                const res = await fetch("/event_log");
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-                const data = await res.json();
-                const events = Array.isArray(data.events) ? data.events : [];
-
-                // БЕРЕМ ПЕРВЫЕ 100 (самые свежие), а не последние
-                // Т.к. сервер использует deque.appendleft() - новые события в начале списка
-                const freshEvents = events.slice(0, 100);
-
-                // Если событий нет - выходим
-                if (freshEvents.length === 0) {
-                    logEl.innerHTML = '<div class="event-log-item">Нет событий</div>';
-                    return;
-                }
-
-                // Оптимизация: используем DocumentFragment вместо строки
-                const fragment = document.createDocumentFragment();
-
-                // Проверяем, нужно ли полное обновление (если слишком много новых или первый запуск)
-                const currentCount = logEl.children.length;
-                const isInitial = currentCount === 0 || lastEventId === null;
-
-                if (isInitial || freshEvents.length > 50) {
-                    // Полная перерисовка (первичная загрузка или массовое обновление)
-                    fragment.append(...freshEvents.map(createEventElement));
-                    logEl.innerHTML = '';
-                    logEl.appendChild(fragment);
-                } else {
-                    // Инкрементальное обновление: добавляем только новые сверху
-                    const newEvents = freshEvents.filter(ev => ev.ts !== lastEventId);
-                    if (newEvents.length > 0) {
-                        // Добавляем новые в начало (они уже отсортированы по свежести)
-                        newEvents.reverse().forEach(ev => {
-                            logEl.insertBefore(createEventElement(ev), logEl.firstChild);
-                        });
-
-                        // Ограничиваем DOM: оставляем только 100 элементов (удаляем старые с конца)
-                        while (logEl.children.length > 100) {
-                            logEl.removeChild(logEl.lastChild);
-                        }
-                    }
-                }
-
-                // Запоминаем ID первого (самого свежего) события для следующего раза
-                lastEventId = freshEvents[0]?.ts || lastEventId;
-
-            } catch (e) {
-                console.error("Event log fetch failed:", e);
-                // Не очищаем старые данные при ошибке, показываем предупреждение
-                if (logEl && logEl.children.length === 0) {
-                    logEl.innerHTML = '<div class="event-log-item error">Ошибка загрузки лога</div>';
-                }
-            }
-        }
-
-        // Вспомогательная функция создания DOM-элемента (быстрее, чем innerHTML)
-        function createEventElement(ev) {
-            const div = document.createElement('div');
-            div.className = 'event-log-item';
-            div.dataset.ts = ev.ts; // Сохраняем timestamp для фильтрации
-
-            const time = document.createElement('span');
-            time.className = 'event-time';
-            time.textContent = ev.time || '--:--:--';
-
-            const tag = document.createElement('span');
-            tag.className = 'event-tag';
-            tag.textContent = ev.tag || '';
-
-            const name = document.createElement('span');
-            name.className = 'event-name';
-            name.textContent = ev.name || '';
-
-            div.append(time, tag, name);
-            return div;
-        }
-        // Кнопка "Загрузить полную историю"
-        document.getElementById('load-full-log')?.addEventListener('click', () => {
-            fetch("/event_log?from_file=1")
-                .then(r => r.json())
-                .then(data => {
-                    const events = (data.events || []).slice(0, 500); // ограничьте 500 для безопасности
-                    const frag = document.createDocumentFragment();
-                    frag.append(...events.map(createEventElement));
-                    document.getElementById("event-log").appendChild(frag);
-                });
-        });
-
-        // Улучшенный вариант: если нужно подгружать из файла историю при скролле
-        async function fetchEventLogExtended(loadFromFile = false) {
-            const url = loadFromFile ? "/event_log?from_file=1" : "/event_log";
-            const res = await fetch(url);
-            // ... остальная логика та же
-        }
-
 
         function fillTable(id, arr, prefix) {
             const table = document.getElementById(id);
@@ -1089,10 +984,236 @@
                 element.style.left = x + 'em';
             }
         }
-        fetchEventLog();
-        setInterval(fetchEventLog, 1000);
+        // === ГЛОБАЛЬНОЕ СОСТОЯНИЕ ===
+        let lastEventId = null;
+        let lastEventTimestamp = 0;
+        let isFetching = false;
+
+        let eventLogInterval = null;
+
+        // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (должны быть ДО использования) ===
+
+        // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
+
+        function createEventElement(ev) {
+            const div = document.createElement('div');
+            div.className = 'event-log-item';
+            div.dataset.ts = ev.ts || '';
+
+            const time = document.createElement('span');
+            time.className = 'event-time';
+            time.textContent = ev.time || '--:--:--';
+
+            const tag = document.createElement('span');
+            tag.className = `event-tag tag-${(ev.tag || '').toLowerCase().replace(/\s+/g, '-')}`; // для CSS
+            tag.textContent = ev.tag || '';
+
+            const name = document.createElement('span');
+            name.className = 'event-name';
+            name.textContent = ev.name || '';
+
+            div.append(time, tag, name);
+            return div;
+        }
+
+        // Throttle утилита
+        function throttle(func, limit) {
+            let lastRan;
+            return function (...args) {
+                if (!lastRan) {
+                    func.apply(this, args);
+                    lastRan = Date.now();
+                } else {
+                    clearTimeout(this.lastThrottle);
+                    this.lastThrottle = setTimeout(() => {
+                        if ((Date.now() - lastRan) >= limit) {
+                            func.apply(this, args);
+                            lastRan = Date.now();
+                        }
+                    }, limit - (Date.now() - lastRan));
+                }
+            }
+        }
+
+        // === ОСНОВНЫЕ ФУНКЦИИ ===
+        async function fetchEventLog(force = false) {
+            if (isFetching && !force) return;
+            isFetching = true;
+
+            const logEl = document.getElementById("event-log");
+            if (!logEl) {
+                isFetching = false;
+                return;
+            }
+
+            try {
+                const res = await fetch("/event_log");
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                const data = await res.json();
+                const events = Array.isArray(data.events) ? data.events : [];
+
+                // Берем первые 100 для показа в основном логе (свежие)
+                const freshEvents = events.slice(0, 100);
+
+                if (freshEvents.length === 0) {
+                    logEl.innerHTML = '<div class="event-log-item">Нет событий</div>';
+                    return;
+                }
+
+                const fragment = document.createDocumentFragment();
+                freshEvents.forEach(ev => fragment.appendChild(createEventElement(ev)));
+                logEl.innerHTML = '';
+                logEl.appendChild(fragment);
+
+                if (freshEvents.length > 0) {
+                    lastEventId = freshEvents[0].ts;
+                    lastEventTimestamp = new Date(freshEvents[0].ts || 0).getTime();
+                }
+            } catch (e) {
+                console.error("Event log fetch failed:", e);
+                if (logEl?.children.length === 0) {
+                    logEl.innerHTML = '<div class="event-log-item error">Ошибка загрузки</div>';
+                }
+            } finally {
+                isFetching = false;
+            }
+        }
+
+        // Throttled версия
+        const throttledFetchEventLog = throttle(fetchEventLog, 1000);
+
+        // === ОБРАБОТЧИКИ СОБЫТИЙ ===
+
+        // === ПОЛНЫЙ ЛОГ ЗА СЕГОДНЯ (ВЕСЬ ФАЙЛ) ===
+        document.getElementById('load-full-log')?.addEventListener('click', async () => {
+            const btn = document.getElementById('load-full-log');
+            const originalText = btn.textContent;
+
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Загрузка...';
+
+            try {
+                let container = document.getElementById('full-log-panel');
+
+                if (!container) {
+                    container = document.createElement('div');
+                    container.id = 'full-log-panel';
+                    container.className = 'full-log-panel';
+                    container.style.cssText = 'position: fixed; top: 50px; right: 20px; width: 600px; max-height: 80vh; background: white; border: 1px solid #ddd; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1000; border-radius: 8px; overflow: hidden;';
+                    container.innerHTML = `
+                <div class="panel-header" style="background: #f5f5f5; padding: 12px 16px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-weight: bold;">Полный лог за сегодня</span>
+                    <button class="close-panel" style="background: none; border: none; cursor: pointer; font-size: 18px;">&times;</button>
+                </div>
+                <div class="panel-controls" style="padding: 10px 16px; border-bottom: 1px solid #eee; background: #fafafa;">
+                    <input type="text" id="full-log-filter" placeholder="Фильтр по тегу или названию..." style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px;">
+                    <div style="margin-top: 5px; font-size: 12px; color: #666; display: flex; justify-content: space-between;">
+                        <span class="log-count">Загрузка...</span>
+                        <button id="cleanup-btn" style="color: #d9534f; border: none; background: none; cursor: pointer; text-decoration: underline; font-size: 11px;">Удалить старые логи</button>
+                    </div>
+                </div>
+                <div class="panel-body" style="max-height: 60vh; overflow-y: auto; padding: 0;"></div>
+            `;
+
+                    document.body.appendChild(container);
+
+                    container.querySelector('.close-panel').addEventListener('click', () => {
+                        container.style.display = 'none';
+                    });
+
+                    container.querySelector('#full-log-filter').addEventListener('input', (e) => {
+                        filterFullLog(e.target.value);
+                    });
+
+                    container.querySelector('#cleanup-btn').addEventListener('click', async () => {
+                        if (!confirm('Удалить все логи кроме сегодняшнего?')) return;
+                        try {
+                            const res = await fetch('/cleanup_logs', { method: 'POST' });
+                            const data = await res.json();
+                            alert(`Удалено файлов: ${data.deleted_files?.length || 0}`);
+                        } catch (e) {
+                            alert('Ошибка очистки');
+                        }
+                    });
+                }
+
+                container.style.display = 'block';
+                const body = container.querySelector('.panel-body');
+                body.innerHTML = '<div style="padding: 20px; text-align: center; color: #999;">Загрузка...</div>';
+
+                // ВАЖНО: убрали limit=500, теперь грузим ВЕСЬ файл за сегодня
+                const response = await fetch("/event_log?from_file=1");
+                const data = await response.json();
+
+                const events = data.events || [];
+                const dateInfo = data.date ? ` (${data.date})` : '';
+                container.querySelector('.panel-header span').textContent = `Полный лог за сегодня${dateInfo}`;
+
+                if (events.length === 0) {
+                    body.innerHTML = '<div style="padding: 20px; color: #666;">За сегодня событий нет</div>';
+                    return;
+                }
+
+                // Показываем все события (может быть много, используем DocumentFragment)
+                const fragment = document.createDocumentFragment();
+                events.forEach(evt => {
+                    fragment.appendChild(createEventElement(evt));
+                });
+
+                body.innerHTML = '';
+                body.appendChild(fragment);
+                container.querySelector('.log-count').textContent = `Всего событий: ${events.length}`;
+
+                // Если есть ошибки парсинга
+                if (data.parse_errors && data.parse_errors.length > 0) {
+                    const warn = document.createElement('div');
+                    warn.style.cssText = 'background: #fff3cd; color: #856404; padding: 8px 16px; font-size: 12px; border-bottom: 1px solid #ffeaa7;';
+                    warn.textContent = `⚠️ Пропущено ошибок чтения: ${data.parse_errors.length}`;
+                    container.insertBefore(warn, container.querySelector('.panel-body'));
+                }
+
+            } catch (e) {
+                console.error("Full log load failed:", e);
+                const body = document.querySelector('#full-log-panel .panel-body');
+                if (body) body.innerHTML = `<div style="padding: 20px; color: red;">Ошибка: ${escapeHtml(e.message)}</div>`;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        });
+        function filterFullLog(query) {
+            const container = document.getElementById('full-log-panel');
+            if (!container) return;
+
+            const items = container.querySelectorAll('.event-log-item');
+            const lowerQuery = query.toLowerCase();
+            let visible = 0;
+
+            items.forEach(item => {
+                const text = item.textContent.toLowerCase();
+                const match = text.includes(lowerQuery);
+                item.style.display = match ? '' : 'none';
+                if (match) visible++;
+            });
+
+            container.querySelector('.log-count').textContent = `Показано: ${visible}`;
+        }
+        // === ИНИЦИАЛИЗАЦИЯ ===
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchEventLog(true);
+            setInterval(fetchEventLog, 5000);
+        });
+
         update();
         plc_xyl();
+
 
     </script>
 </body>
