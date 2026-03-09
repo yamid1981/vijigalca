@@ -1,3 +1,4 @@
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -21,7 +22,7 @@ TOTAL_R = 31200
 # Пароль для расширенных функций (поменяйте при необходимости)
 ADVANCED_PASSWORD = "6561"
 # Лог событий (сервер)
-EVENT_LOG_PATH = r"c:\0\event_log.jsonl"
+EVENT_LOG_PATH = r"c:/0/event_log.jsonl"
 EVENT_POLL_INTERVAL = 0.5
 # Увеличиваем размер чанка до максимально стабильного для iQ-F/Q
 CHUNK_SIZE = 450 #с большим значением не работает
@@ -708,32 +709,32 @@ def event_poll_loop():
             print(f"Ошибка опроса событий: {e}")
         time.sleep(EVENT_POLL_INTERVAL)
 
-
+PLC_LOCK = threading.Lock()
 def get_plc_data():
-    results = {}
-    for dev in DEVICES:
-        dev_id = dev["id"]
-        try:
-            data = red_slmp() 
-            if not data:
+    with PLC_LOCK:
+        results = {}
+        for dev in DEVICES:
+            dev_id = dev["id"]
+            try:
+                data = red_slmp() 
+                if not data:
+                    results[dev_id] = None
+                    continue
+                payload = [
+                    data["X"],
+                    data["Y"],
+                    data["C"],
+                    data["L"],
+                    data["D"],
+                    data["M"],
+                    data["SD"],
+                    data["RD"]
+                ]
+                results[dev_id] = {"tags": build_scada_json(payload)}
+            except Exception as e:
+                print(f"Ошибка опроса ПЛК: {e}")
                 results[dev_id] = None
-                continue
-
-            payload = [
-                data["X"],
-                data["Y"],
-                data["C"],
-                data["L"],
-                data["D"],
-                data["M"],
-                data["SD"],
-                data["RD"]
-            ]
-            results[dev_id] = {"tags": build_scada_json(payload)}
-        except Exception as e:
-            print(f"Ошибка опроса ПЛК: {e}")
-            results[dev_id] = None
-    return results
+        return results
 def resolve(ip):
     try:
         return socket.gethostbyaddr(ip)[0]
@@ -833,21 +834,87 @@ def plc_get():
 @app.route("/event_log")
 def event_log():
     """Возвращает события из памяти (быстро) + из файла (полная история)"""
-    # Можно передать ?from_file=1 чтобы принудительно читать файл
     use_file = request.args.get('from_file', '0') == '1'
+    limit = min(int(request.args.get('limit', 2000)), 5000)  # защита от слишком больших запросов
     
     if not use_file:
         with EVENT_LOCK:
-            return jsonify({"events": list(EVENT_LOG), "source": "memory"})
+            # Конвертируем deque в list для JSON сериализации
+            # События уже в порядке от новых к старым (если используете appendleft)
+            events = list(EVENT_LOG)
+        return jsonify({
+            "events": events,
+            "source": "memory",
+            "count": len(events),
+            "timestamp": time.time()
+        })
     
-    # Чтение из файла (последние 2000 записей)
+    # Чтение из файла с оптимизацией для больших файлов
+    events = []
+    errors = []
+    
     try:
+        if not os.path.exists(EVENT_LOG_PATH):
+            return jsonify({
+                "events": [],
+                "source": "file",
+                "error": "Log file not found"
+            }), 404
+            
+        # Читаем с конца файла более эффективно
+        file_size = os.path.getsize(EVENT_LOG_PATH)
+        chunk_size = 8192  # 8KB chunks
+        
+        if file_size == 0:
+            return jsonify({"events": [], "source": "file", "count": 0})
+        
+        lines = []
         with open(EVENT_LOG_PATH, "r", encoding="utf-8") as f:
-            lines = f.readlines()[-2000:]  # последние 2000 строк
-            events = [json.loads(line) for line in lines if line.strip()]
-        return jsonify({"events": events, "source": "file"})
+            # Если файл маленький - читаем целиком, если большой - читаем с конца
+            if file_size < 1024 * 1024:  # < 1MB
+                lines = f.readlines()
+            else:
+                # Читаем последние ~100KB для примерно 2000 строк (зависит от размера строки)
+                # Это эвристика, для точного количества нужен более сложный код
+                seek_pos = max(0, file_size - 100 * 1024)
+                f.seek(seek_pos)
+                f.readline()  # пропускаем потенциально обрезанную строку
+                lines = f.readlines()
+            
+            # Берём последние N строк
+            lines = lines[-limit:] if len(lines) > limit else lines
+            
+        # Парсим JSON с защитой от corrupted строк
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+                events.append(event)
+            except json.JSONDecodeError as e:
+                errors.append(f"Parse error: {str(e)[:50]}")
+                continue
+        
+        # ВАЖНО: Реверсируем, чтобы порядок был от новых к старым (как в памяти)
+        # Т.к. в файле обычно: старые -> новые, а в deque: новые -> старые
+        events.reverse()
+        
+        return jsonify({
+            "events": events,
+            "source": "file",
+            "count": len(events),
+            "errors": errors if errors else None,
+            "timestamp": time.time()
+        })
+        
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({
+            "events": events,
+            "source": "file",
+            "error": str(e),
+            "errors_count": len(errors)
+        }), 500
 
 
 @app.route("/auth_check", methods=["POST"])
