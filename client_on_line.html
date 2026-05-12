@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Мониторинг клиентов</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #f0f2f5 0%, #e6e9ef 100%);
+      min-height: 100vh;
+      color: #1f2937;
+      padding-bottom: 2rem;
+    }
+
+    /* --- UI Компоненты --- */
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    /* --- Форма входа --- */
+    #loginSection {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 80vh;
+    }
+
+    #passwordForm {
+      width: 100%;
+      max-width: 360px;
+      background: white;
+      padding: 2rem;
+      border-radius: 16px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+      text-align: center;
+    }
+
+    #passwordForm label {
+      display: block;
+      margin-bottom: 0.8rem;
+      font-weight: 600;
+      color: #374151;
+    }
+
+    #password {
+      width: 100%;
+      padding: 12px;
+      margin-bottom: 1rem;
+      font-size: 1rem;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      outline: none;
+    }
+
+    #password:focus {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    }
+
+    .btn-primary {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(90deg, #3b82f6, #2563eb);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(90deg, #2563eb, #1d4ed8);
+      transform: translateY(-1px);
+    }
+
+    /* --- Дашборд (скрыт по умолчанию) --- */
+    #dashboardSection {
+      display: none;
+      animation: fadeIn 0.5s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      color: #111827;
+    }
+
+    .status-bar {
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      font-weight: 500;
+    }
+
+    .server-time {
+      background: #e0e7ff;
+      color: #3730a3;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-family: monospace;
+      font-size: 1.1rem;
+    }
+
+    .sound-btn {
+      background: white;
+      border: 1px solid #d1d5db;
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: 0.2s;
+    }
+    .sound-btn:hover { background: #f3f4f6; }
+
+    /* --- Табы --- */
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 10px;
+    }
+
+    .tab-btn {
+      background: none;
+      border: none;
+      padding: 10px 20px;
+      font-size: 1rem;
+      cursor: pointer;
+      color: #6b7280;
+      border-radius: 8px;
+      font-weight: 500;
+    }
+
+    .tab-btn.active {
+      background: #f3f4f6;
+      color: #111827;
+      font-weight: 600;
+    }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* --- Таблицы --- */
+    .section-title {
+      margin: 1.5rem 0 1rem;
+      font-size: 1.2rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge {
+      font-size: 0.8rem;
+      padding: 2px 8px;
+      border-radius: 4px;
+      color: white;
+    }
+    .badge.active { background-color: #10b981; }
+    .badge.inactive { background-color: #f59e0b; }
+
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid #e5e7eb;
+    }
+
+    th, td {
+      padding: 12px 16px;
+      text-align: left;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    th {
+      background: #f9fafb;
+      font-weight: 600;
+      color: #4b5563;
+      cursor: pointer;
+      user-select: none;
+    }
+    
+    th:hover { background: #f3f4f6; }
+
+    tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background-color: #f9fafb; }
+
+    /* Статусы в таблице */
+    .status-active { color: #059669; font-weight: 600; }
+    .status-inactive { color: #d97706; }
+    
+    .hostname-text { color: #6b7280; font-size: 0.9em; margin-left: 8px; font-weight: normal; }
+
+    /* Ошибки */
+    .error-msg {
+      color: #ef4444;
+      text-align: center;
+      margin-top: 1rem;
+      min-height: 1.5rem;
+    }
+
+    /* Мобильные */
+    @media (max-width: 768px) {
+      header { flex-direction: column; align-items: stretch; text-align: center; }
+      .status-bar { justify-content: center; }
+      th, td { padding: 10px; font-size: 0.9rem; }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- Секция Входа -->
+  <div id="loginSection">
+    <form id="passwordForm">
+      <h2 style="margin-bottom: 1.5rem;">🔐 Вход в систему</h2>
+      <label for="password">Пароль доступа</label>
+      <input type="password" id="password" name="password" placeholder="Введите пароль" required>
+      <button type="submit" class="btn-primary">Войти</button>
+      <div id="loginError" class="error-msg"></div>
+    </form>
+  </div>
+
+  <!-- Секция Дашборда -->
+  <div id="dashboardSection" class="container">
+    
+    <header>
+      <div>
+        <h1>Мониторинг сети</h1>
+        <p style="color: #6b7280;">Отслеживание активности клиентов</p>
+      </div>
+      <div class="status-bar">
+        <div id="serverTime" class="server-time">--:--:--</div>
+        <button id="soundBtn" class="sound-btn">🔊 Проверка звука</button>
+      </div>
+    </header>
+
+    <div class="card">
+      <nav class="tabs">
+        <button class="tab-btn active" onclick="switchTab('monitoring')">🟢 Мониторинг</button>
+        <button class="tab-btn" onclick="switchTab('reference')">📋 Справочник IP</button>
+      </nav>
+
+      <!-- Вкладка 1: Мониторинг -->
+      <div id="tab-monitoring" class="tab-content active">
+        
+        <div class="section-title">
+          Активные клиенты <span class="badge active" id="activeCountBadge">0</span>
+          <small style="margin-left:auto; color:#6b7280;">(запрос < 30 сек)</small>
+        </div>
+        <table id="activeTable">
+          <thead>
+            <tr>
+              <th onclick="sortTable('activeTable', 0)">IP ⬍</th>
+              <th>Имя хоста</th>
+              <th onclick="sortTable('activeTable', 2)">Запросов ⬍</th>
+              <th onclick="sortTable('activeTable', 3)">Посл. запрос ⬍</th>
+            </tr>
+          </thead>
+          <tbody><!-- JS заполнит --></tbody>
+        </table>
+
+        <div class="section-title" style="margin-top: 2rem;">
+          Неактивные клиенты <span class="badge inactive" id="inactiveCountBadge">0</span>
+        </div>
+        <table id="inactiveTable">
+          <thead>
+            <tr>
+              <th onclick="sortTable('inactiveTable', 0)">IP ⬍</th>
+              <th>Имя хоста</th>
+              <th onclick="sortTable('inactiveTable', 2)">Запросов ⬍</th>
+              <th onclick="sortTable('inactiveTable', 3)">Посл. запрос ⬍</th>
+            </tr>
+          </thead>
+          <tbody><!-- JS заполнит --></tbody>
+        </table>
+        
+      </div>
+
+      <!-- Вкладка 2: Справочник -->
+      <div id="tab-reference" class="tab-content">
+        <div class="section-title">Статический список оборудования</div>
+        <div id="staticTableContainer"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Аудио -->
+  <audio id="sirenAudio" preload="auto">
+    <source src="sirena.mp3" type="audio/mpeg">
+  </audio>
+
+  <script>
+    // === КОНФИГУРАЦИЯ ===
+    const PASSWORD_CORRECT = "6561"; // В реальном проде лучше не хранить пароль на фронте, но для задачи - ок
+    let savedPassword = "";
+    let autoUpdateInterval = null;
+    let timeInterval = null;
+
+    // Специальные IP для подмены названий
+    const specialIPs = [
+      ['192.168.62.139', 'Тепло-пункт'],
+      ['192.168.62.56', 'Тепло-пункт'],
+      ['192.168.62.123', 'Тепло-пункт'],
+      ['192.168.14.71', 'Деж. энергетик'],
+      ['192.168.4.138', 'АСУТП сервер'],
+      ['192.168.4.141', 'АСУТП лаборатория'],
+      ['192.168.4.139', 'АСУТП Начальник']
+    ];
+
+    // Справочник (Таблица)
+    const staticData = [
+      ["рамный1", "ramn_1", "192.168.32.169"],
+      ["рамный2", "ramn_2", "192.168.4.131"],
+      ["нормали", "normali", "192.168.4.133"],
+      ["ЦПО", "cpo", "192.168.4.155"],
+      ["МСЦ-2", "msc2", "192.168.4.157"],
+      ["Агрегатный", "agregatn", "192.168.4.153"],
+      ["КЗЦ", "kzc", "192.168.30.191"],
+      ["ЦСиСА", "ciisa", "147.1.1.246"],
+      ["КЦ", "kc", "192.168.30.192"],
+      ["MSK1 SH", "msk1", "192.168.20.210"],
+      ["ISHZ", "ihz", "192.168.6.243"],
+      ["SLC2 1", "slc2_1", "192.168.32.53"],
+      ["MSK1 TP2", "rc_zaa", "192.168.32.143"],
+      ["ЦМШ", "cmh", "192.168.101.171"],
+      ["АТЦ", "atc", "192.168.36.2"],
+      ["ЭЦ1", "ec1", "192.167.3.44"],
+      ["Типография", "-", "192.168.32.138"],
+      ["SLC2 2", "slc2_2", "192.168.32.215"],
+      ["CSiOK", "csiok", "192.168.32.110"],
+      ["COM", "com", "192.168.32.114"],
+      ["PrC", "prc", "192.168.32.115"],
+      ["CPl", "cpl", "192.168.32.117"],
+      ["CSiSA 24c", "maz_24", "192.168.159.2"],
+      ["CSMA", "24c_boxi", "192.168.159.3"],
+      ["CAA", "CAA", "192.168.159.4"],
+      ["ТехВода1", "-", "192.168.62.191"],
+      ["ТехВода2", "-", "192.168.62.192"],
+      ["АртВода", "-", "192.168.62.189"],
+      ["ХимОчищВода", "-", "192.168.62.190"]
+    ];
+
+    // === ИНИЦИАЛИЗАЦИЯ ===
+    document.addEventListener('DOMContentLoaded', () => {
+      renderStaticTable();
+      startClock();
+    });
+
+    // === ЛОГИКА ВХОДА ===
+    document.getElementById('passwordForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const passwordInput = document.getElementById('password').value;
+      const errorDiv = document.getElementById('loginError');
+
+      // Проверка (можно сразу сверить на фронте, но запрос /check проверяет реальный доступ)
+      // Сделаем запрос к серверу для авторизации
+      try {
+        const response = await fetch('/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: passwordInput })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          savedPassword = passwordInput;
+          document.getElementById('loginSection').style.display = 'none';
+          document.getElementById('dashboardSection').style.display = 'block';
+          updateTables(data); // Первичная отрисовка
+          startAutoUpdate();  // Запуск автообновления
+        } else {
+          errorDiv.textContent = data.error || "Неверный пароль";
+          document.getElementById('password').value = "";
+        }
+      } catch (err) {
+        console.error(err);
+        errorDiv.textContent = "Ошибка соединения с сервером";
+      }
+    });
+
+    // === АВТООБНОВЛЕНИЕ ===
+    function startAutoUpdate() {
+      if (autoUpdateInterval) clearInterval(autoUpdateInterval);
+      // Обновляем каждые 5 секунд
+      autoUpdateInterval = setInterval(async () => {
+        try {
+          const response = await fetch('/check', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: savedPassword })
+          });
+          if (response.ok) {
+            const data = await response.json();
+            updateTables(data);
+          } else {
+            // Если сессия сломалась или пароль изменился
+            console.error("Autoupdate failed");
+          }
+        } catch (e) {
+          console.error("Network error on autoupdate", e);
+        }
+      }, 5000);
+    }
+
+    // === ЧАСЫ ===
+    function startClock() {
+      const updateTime = async () => {
+        try {
+          const res = await fetch('/vremja.json');
+          const data = await res.json();
+          if (data && data.time) {
+            document.getElementById('serverTime').textContent = data.time;
+          }
+        } catch (e) { /* ignore */ }
+      };
+      
+      updateTime(); // сразу
+      setInterval(updateTime, 5000); // каждые 5 сек как на сервере
+    }
+
+    // === ОТРИСОВКА ТАБЛИЦ ===
+    function updateTables(data) {
+      renderClientTable('activeTable', data.active, true);
+      renderClientTable('inactiveTable', data.inactive, false);
+      
+      document.getElementById('activeCountBadge').textContent = data.active.length;
+      document.getElementById('inactiveCountBadge').textContent = data.inactive.length;
+    }
+
+    function renderClientTable(tableId, clients, isActive) {
+      const tbody = document.querySelector(`#${tableId} tbody`);
+      tbody.innerHTML = '';
+
+      if (!clients || clients.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:#9ca3af;">Нет данных</td></tr>`;
+        return;
+      }
+
+      clients.forEach(c => {
+        let ipDisplay = c.ip.replace(/^::ffff:/, '');
+        
+        // Проверка на специальные IP
+        let specialLabel = "";
+        specialIPs.forEach(([addr, label]) => {
+          if (ipDisplay.includes(addr)) specialLabel = `(${label})`;
+        });
+
+        // Имя хоста (если есть)
+        let hostname = c.hostname || "Неизвестно";
+        if (hostname === "Unknown Device") hostname = "DNS недоступен";
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>
+            <strong>${ipDisplay}</strong> <span style="color: #6b7280; font-size: 0.85em;">${specialLabel}</span>
+          </td>
+          <td>${hostname}</td>
+          <td>${c.count}</td>
+          <td>${c.lastRequest}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // === СТАТИЧЕСКАЯ ТАБЛИЦА ===
+    function renderStaticTable() {
+      const container = document.getElementById('staticTableContainer');
+      let html = `
+        <table>
+          <thead>
+            <tr>
+              <th>Название</th>
+              <th>Код/Алиас</th>
+              <th>IP-адрес</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+      
+      staticData.forEach(([name, alias, ip]) => {
+        html += `<tr><td>${name}</td><td><code>${alias}</code></td><td>${ip}</td></tr>`;
+      });
+      
+      html += `</tbody></table>`;
+      container.innerHTML = html;
+    }
+
+    // === СОРТИРОВКА ===
+    // Простая сортировка строк
+    function sortTable(tableId, colIndex) {
+      const table = document.getElementById(tableId);
+      const tbody = table.querySelector('tbody');
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+
+      // Определяем направление
+      const isAsc = table.getAttribute('data-order') === 'asc';
+      const modifier = isAsc ? 1 : -1;
+
+      rows.sort((rowA, rowB) => {
+        const cellA = rowA.children[colIndex].innerText;
+        const cellB = rowB.children[colIndex].innerText;
+        
+        // Числовая сортировка для колонки "Запросов" (индекс 2)
+        if (colIndex === 2) {
+          return modifier * (parseInt(cellA) - parseInt(cellB));
+        }
+        // Текстовая для остальных
+        return modifier * cellA.localeCompare(cellB);
+      });
+
+      // Перемешиваем DOM
+      rows.forEach(row => tbody.appendChild(row));
+      
+      // Меняем атрибут для следующего клика
+      table.setAttribute('data-order', isAsc ? 'desc' : 'asc');
+    }
+
+    // === ТАБЫ ===
+    function switchTab(tabId) {
+      // Скрыть все табы
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      
+      // Показать нужный
+      document.getElementById(`tab-${tabId}`).classList.add('active');
+      
+      // Подсветить кнопку (простой поиск по onclick для простоты)
+      const buttons = document.querySelectorAll('.tab-btn');
+      if (tabId === 'monitoring') buttons[0].classList.add('active');
+      if (tabId === 'reference') buttons[1].classList.add('active');
+    }
+
+    // === ЗВУК ===
+    document.getElementById('soundBtn').addEventListener('click', () => {
+      const audio = document.getElementById('sirenAudio');
+      audio.currentTime = 0;
+      audio.play().catch(e => console.log("Автовоспроизведение заблокировано браузером", e));
+    });
+
+  </script>
+</body>
+</html>
