@@ -1,0 +1,1883 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PLC Timeline Logger - История</title>
+
+    <!-- Локальные версии библиотек -->
+    <script src="/static/js/chart.min.js"></script>
+    <script src="/static/js/hammer.min.js"></script>
+    <script src="/static/js/chartjs-plugin-zoom.min.js"></script>
+
+    <style>
+        :root {
+            --bg-dark: #1e1e1e;
+            --bg-panel: #252526;
+            --border: #3e3e42;
+            --text-main: #d4d4d4;
+            --text-accent: #9cdcfe;
+            --btn-primary: #0e639c;
+            --btn-primary-hover: #1177bb;
+            --btn-danger: #c75050;
+            --btn-success: #5cb85c;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h2 {
+            margin-top: 0;
+            color: #ffffff;
+            font-size: 20px;
+        }
+
+        .top-panel {
+            display: grid;
+            grid-template-columns: 1fr 320px;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .panel {
+            background-color: var(--bg-panel);
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            margin-bottom: 12px;
+        }
+
+        label {
+            font-size: 12px;
+            color: var(--text-accent);
+            font-weight: bold;
+        }
+
+        select,
+        button {
+            background-color: #3c3c3c;
+            color: #ffffff;
+            border: 1px solid #555;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 14px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        select {
+            min-width: 100%;
+        }
+
+        button {
+            cursor: pointer;
+            background-color: var(--btn-primary);
+            border: 1px solid var(--btn-primary-hover);
+            transition: background 0.2s;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        button:hover {
+            background-color: var(--btn-primary-hover);
+        }
+
+        button:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        button.btn-danger {
+            background-color: var(--btn-danger);
+            border-color: #d9534f;
+        }
+
+        button.btn-danger:hover {
+            background-color: #d9534f;
+        }
+
+        .btn-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .btn-row button {
+            flex: 1;
+            margin-bottom: 0;
+        }
+
+        /* Календарь */
+        .calendar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .calendar-header button {
+            width: auto;
+            padding: 4px 10px;
+            margin: 0;
+            font-size: 12px;
+        }
+
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 4px;
+        }
+
+        .cal-day-header {
+            text-align: center;
+            font-size: 11px;
+            color: #888;
+            padding: 4px;
+            font-weight: bold;
+        }
+
+        .cal-day {
+            aspect-ratio: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background-color: #3c3c3c;
+            border: 1px solid #555;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.15s;
+        }
+
+        .cal-day:hover {
+            background-color: #4a4a4a;
+            border-color: var(--btn-primary-hover);
+        }
+
+        .cal-day.has-data {
+            background-color: #1a5490;
+            border-color: #2196f3;
+        }
+
+        .cal-day.has-data:hover {
+            background-color: #2196f3;
+        }
+
+        .cal-day.today {
+            border: 2px solid var(--btn-success);
+        }
+
+        .cal-day.selected {
+            border: 2px solid #ffc107;
+            background-color: #ffc107;
+            color: #000;
+            font-weight: bold;
+        }
+
+        .cal-day.selected .day-indicator {
+            color: #000;
+        }
+
+        .day-indicator {
+            font-size: 8px;
+            margin-top: 2px;
+            color: #90EE90;
+        }
+
+        /* Активные сигналы */
+        .active-signals {
+            max-height: 120px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+
+        .active-signals h3 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            color: var(--text-accent);
+        }
+
+        .signal-tag {
+            display: inline-flex;
+            align-items: center;
+            background-color: #3c3c3c;
+            border: 1px solid #555;
+            border-radius: 4px;
+            padding: 4px 10px;
+            margin: 4px;
+            font-size: 13px;
+        }
+
+        .signal-tag .color-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .signal-tag .remove-btn {
+            background: none;
+            border: none;
+            color: #f48771;
+            cursor: pointer;
+            font-size: 16px;
+            margin-left: 8px;
+            padding: 0 4px;
+            line-height: 1;
+        }
+
+        .signal-tag .remove-btn:hover {
+            color: #f85149;
+            background-color: #3e3e42;
+            border-radius: 3px;
+        }
+
+        /* Графики */
+        .chart-container {
+            background-color: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        .chart-title {
+            font-size: 13px;
+            font-weight: bold;
+            color: #cccccc;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .hint {
+            font-size: 11px;
+            color: #888;
+            font-weight: normal;
+            text-transform: none;
+        }
+
+        /* Лоадер */
+        .loader-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(30, 30, 30, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            flex-direction: column;
+        }
+
+        .loader-overlay.active {
+            display: flex;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #3c3c3c;
+            border-top: 4px solid var(--btn-primary-hover);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .loader-text {
+            margin-top: 15px;
+            color: var(--text-accent);
+            font-size: 14px;
+        }
+
+        .indicators-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 8px;
+        }
+
+        .indicator-item {
+            background: #2d2d2d;
+            border: 2px solid #3e3e42;
+            border-radius: 6px;
+            padding: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .indicator-item.active {
+            border-color: #4caf50;
+            background: #1a3d1a;
+        }
+
+        .indicator-light {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #3e3e42;
+            border: 2px solid #555;
+            flex-shrink: 0;
+            transition: all 0.2s;
+        }
+
+        .indicator-item.active .indicator-light {
+            background: #4caf50;
+            border-color: #81c784;
+            box-shadow: 0 0 10px rgba(76, 175, 80, 0.6);
+        }
+
+        .indicator-label {
+            font-size: 11px;
+            color: #d4d4d4;
+            font-weight: bold;
+            line-height: 1.2;
+        }
+
+        .indicator-desc {
+            font-size: 9px;
+            color: #888;
+            margin-top: 2px;
+        }
+
+        .counters-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+        }
+
+        .counter-item {
+            background: #2d2d2d;
+            border: 2px solid #3e3e42;
+            border-radius: 6px;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .counter-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #00e5ff;
+            font-family: 'Courier New', monospace;
+            margin-bottom: 5px;
+        }
+
+        .counter-label {
+            font-size: 11px;
+            color: #888;
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            /* Для Chrome/Safari */
+            appearance: none;
+            /* <-- ДОБАВЬ ЭТУ СТРОКУ (VS Code успокоится) */
+            height: 8px;
+            background: #3c3c3c;
+            border-radius: 4px;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            background: var(--btn-primary);
+            border-radius: 50%;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            background: var(--btn-primary-hover);
+        }
+
+        .change-item {
+            padding: 4px 8px;
+            margin: 2px 0;
+            border-radius: 4px;
+            border-left: 3px solid #555;
+            background: #2d2d2d;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .change-item.rising {
+            border-left-color: #4caf50;
+            /* Зелёный для 0→1 */
+            background: #1a3d1a;
+        }
+
+        .change-item.falling {
+            border-left-color: #f44336;
+            /* Красный для 1→0 */
+            background: #3d1a1a;
+        }
+
+        .change-item.counter {
+            border-left-color: #00e5ff;
+            /* Голубой для счетчиков */
+            background: #1a2d3d;
+        }
+
+        .change-signal {
+            font-weight: bold;
+            color: #9cdcfe;
+        }
+
+        .change-desc {
+            color: #888;
+            font-size: 10px;
+            margin-left: 8px;
+        }
+
+        .change-value {
+            font-weight: bold;
+        }
+
+        .change-value.rising {
+            color: #4caf50;
+        }
+
+        .change-value.falling {
+            color: #f44336;
+        }
+
+        .change-value.counter {
+            color: #00e5ff;
+        }
+
+        .event-item {
+            padding: 6px 10px;
+            margin: 3px 0;
+            border-radius: 4px;
+            border-left: 3px solid #555;
+            background: #2d2d2d;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .event-item.current {
+            border-left-color: #ffc107;
+            background: #3d3520;
+            border: 2px solid #ffc107;
+            box-shadow: 0 0 10px rgba(255, 193, 7, 0.3);
+        }
+
+        .event-item.rising {
+            border-left-color: #4caf50;
+        }
+
+        .event-item.falling {
+            border-left-color: #f44336;
+        }
+
+        .event-item.counter {
+            border-left-color: #00e5ff;
+        }
+
+        .event-time {
+            color: #888;
+            font-size: 10px;
+            min-width: 90px;
+            flex-shrink: 0;
+        }
+
+        .event-content {
+            flex: 1;
+        }
+
+        .event-signal {
+            font-weight: bold;
+            color: #9cdcfe;
+            margin-right: 8px;
+            font-size: 12px;
+            /* <-- ИСПРАВИТЬ */
+        }
+
+        .event-desc {
+            color: #888;
+            font-size: 11px;
+            /* <-- ИСПРАВИТЬ */
+        }
+
+        .event-value {
+            font-weight: bold;
+            margin-left: auto;
+            flex-shrink: 0;
+        }
+
+        .event-value.rising {
+            color: #4caf50;
+        }
+
+        .event-value.falling {
+            color: #f44336;
+        }
+
+        .event-value.counter {
+            color: #00e5ff;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Индикатор загрузки -->
+    <div class="loader-overlay" id="loader">
+        <div class="spinner"></div>
+        <div class="loader-text">Загрузка данных с ПЛК...</div>
+    </div>
+
+    <div class="container">
+        <h2>📊 PLC Timeline Logger (История 10 дней)</h2>
+
+        <div class="top-panel">
+            <!-- Левая колонка: Управление -->
+            <div class="panel">
+                <div class="control-group">
+                    <label>📅 Текущая дата просмотра</label>
+                    <div id="currentDateDisplay"
+                        style="font-size: 16px; font-weight: bold; color: #ffc107; padding: 5px 0;">
+                        --.--.----
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label>Тип сигнала</label>
+                    <select id="signalType" onchange="updateSignalDropdown()">
+                        <option value="X">Входы (X)</option>
+                        <option value="Y">Выходы (Y)</option>
+                        <option value="M">Маркеры (M)</option>
+                        <option value="L">Реле (L)</option>
+                        <option value="C">Счетчики/Аналог (C)</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Сигнал (Номер и Описание)</label>
+                    <select id="signalIndex"></select>
+                </div>
+
+                <div class="btn-row">
+                    <button onclick="addSignal()">➕ Добавить</button>
+                    <button class="btn-danger" onclick="clearActiveSignals()">🗑️ Очистить график</button>
+                </div>
+            </div>
+
+            <!-- Правая колонка: Календарь -->
+            <div class="panel">
+                <div class="calendar-header">
+                    <button onclick="changeMonth(-1)">◀</button>
+                    <span id="calendarMonthYear" style="font-weight: bold; color: var(--text-accent);"></span>
+                    <button onclick="changeMonth(1)">▶</button>
+                </div>
+                <div class="calendar-grid" id="calendarGrid"></div>
+                <div
+                    style="margin-top: 15px; font-size: 11px; color: #888; border-top: 1px solid var(--border); padding-top: 10px;">
+                    💡 <b>Зеленая точка</b> = есть данные<br>
+                    💡 <b>Желтая рамка</b> = выбранная дата<br>
+                    💡 Кликните на дату для загрузки
+                </div>
+            </div>
+        </div>
+
+        <div class="panel active-signals">
+            <h3>📡 Активные сигналы:</h3>
+            <div id="activeSignalsList">
+                <span style="color: #888; font-size: 13px;">Нет добавленных сигналов. Выберите сигнал выше и нажмите
+                    "Добавить".</span>
+            </div>
+        </div>
+
+        <div class="chart-container" style="height: 300px;">
+            <div class="chart-title">
+                Аналоговые сигналы / Счетчики (C)
+                <span class="hint">Колесико: масштаб | Перетаскивание: сдвиг</span>
+            </div>
+            <canvas id="analogChart"></canvas>
+        </div>
+
+        <div class="chart-container" style="height: 400px;">
+            <div class="chart-title">
+                Дискретные сигналы (X, Y, M, L) — Логический анализатор
+                <span class="hint">Наведите для просмотра HIGH/LOW</span>
+            </div>
+            <canvas id="digitalChart"></canvas>
+        </div>
+    </div>
+    <!-- ==================== ПАНЕЛЬ ВИЗУАЛИЗАЦИИ И ПЛЕЕР ==================== -->
+    <div class="panel" style="margin-bottom: 20px;">
+        <!-- Поиск по времени -->
+        <div style="display: flex; gap: 10px; margin-bottom: 15px; align-items: center;">
+            <label style="color: var(--text-accent); font-weight: bold;">🔍 Поиск времени:</label>
+            <input type="time" id="timeSearch" step="0.001" style="background: #3c3c3c; color: #fff; border: 1px solid #555; 
+                      padding: 5px 10px; border-radius: 4px; font-size: 14px;">
+            <button onclick="jumpToTime()" style="width: auto; margin: 0; padding: 5px 15px;">
+                Перейти
+            </button>
+            <button onclick="clearTimeSearch()" style="width: auto; margin: 0; padding: 5px 15px; 
+                       background: #555;">
+                Очистить
+            </button>
+        </div>
+
+        <!-- Панель управления плеером -->
+        <div style="background: #1e1e1e; padding: 15px; border-radius: 6px; margin-bottom: 15px;">
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <button onclick="playerFirst()" style="width: 40px; margin: 0;">⏮</button>
+                <button onclick="playerPlay()" id="btnPlay" style="width: 50px; margin: 0;">▶</button>
+                <button onclick="playerPause()" style="width: 40px; margin: 0;">⏸</button>
+                <button onclick="playerStop()" style="width: 40px; margin: 0;">⏹</button>
+                <button onclick="playerLast()" style="width: 40px; margin: 0;">⏭</button>
+
+                <div style="flex: 1; min-width: 200px;">
+                    <input type="range" id="playerProgress" min="0" max="100" value="0" style="width: 100%;"
+                        oninput="seekPlayer(this.value)">
+                </div>
+
+                <select id="playerSpeed" onchange="changeSpeed()" style="width: 80px; margin: 0;">
+                    <option value="1">1x</option>
+                    <option value="2">2x</option>
+                    <option value="5" selected>5x</option>
+                    <option value="10">10x</option>
+                    <option value="20">20x</option>
+                    <option value="50">50x</option>
+                    <option value="100">100x</option>
+                </select>
+
+                <div id="currentTimeDisplay" style="color: #ffc107; font-weight: bold; 
+                                                font-family: monospace; font-size: 16px;">
+                    00:00:00.000
+                </div>
+                <span style="color: #888;">/</span>
+                <div id="totalTimeDisplay" style="color: #888; font-family: monospace; 
+                                              font-size: 14px;">
+                    00:00:00.000
+                </div>
+            </div>
+        </div>
+
+        <!-- Индикаторы X -->
+        <div style="margin-bottom: 15px;">
+            <h3 style="margin: 0 0 10px 0; color: #4caf50; font-size: 14px;">📡 Входы (X)</h3>
+            <div class="indicators-grid" id="indicatorsX"></div>
+        </div>
+
+        <!-- Индикаторы Y -->
+        <div style="margin-bottom: 15px;">
+            <h3 style="margin: 0 0 10px 0; color: #2196f3; font-size: 14px;"> Выходы (Y)</h3>
+            <div class="indicators-grid" id="indicatorsY"></div>
+        </div>
+
+        <!-- 🔥 ЛЕНТА СОБЫТИЙ (Event Timeline) -->
+        <div style="margin-bottom: 15px;">
+            <h3 style="margin: 0 0 10px 0; color: #ff9800; font-size: 14px;">📋 Лента событий (до/после текущего кадра)
+            </h3>
+            <div id="eventTimeline" style="background: #1e1e1e; border: 1px solid #3e3e42; border-radius: 6px; 
+                                  padding: 10px; max-height: 300px; overflow-y: auto; 
+                                  font-family: 'Courier New', monospace; font-size: 11px; color: #d4d4d4;">
+                <span style="color: #888;">Запустите плеер или перемотайте для просмотра событий...</span>
+            </div>
+        </div>
+
+        <!-- Счетчики C -->
+        <div>
+            <h3 style="margin: 0 0 10px 0; color: #00e5ff; font-size: 14px;">📊 Счетчики (C) и Регистры (D)</h3>
+            <div class="counters-grid" id="countersC"></div>
+        </div>
+    </div>
+
+    <script>
+        let availableDatesSet = new Set(); // Хранит реальные даты с данными
+        // Добавь новую функцию для загрузки списка дат при старте:
+        async function loadAvailableDates() {
+            try {
+                const response = await fetch('/api/available_dates');
+                const data = await response.json();
+                if (data.dates) {
+                    availableDatesSet = new Set(data.dates);
+                    renderCalendar(); // Перерисовываем календарь с правильными точками
+                }
+            } catch (e) {
+                console.error("Не удалось загрузить список доступных дат:", e);
+            }
+        }
+        // ==================== КОНФИГУРАЦИЯ И ДАННЫЕ ====================
+        const signalNames = {
+            X: {
+                0: 'X0	    Резерв',
+                1: 'X1	    Режим работы Выбран Контроллер/Реле',
+                2: 'X2	    Резерв',
+                3: 'X3	    Резерв',
+                4: 'X4	    BQ21 набор шага и баз ',
+                5: 'X5	    BQ22 набор шага и баз ',
+                6: 'X6	    BQ37 Задняя тележка перед остановом ',
+                7: 'X7	    BQ38 Задняятележка перед остановом ',
+                8: 'X10	BQ15 открыт останов 1',
+                9: 'X11	BQ16 закрыт останов 1',
+                10: 'X12	BQ17 открыт останов 2',
+                11: 'X13	BQ18 закрыт останов 2',
+                12: 'X14	BQ9 передняя тележка перед остановом',
+                13: 'X15	BQ10 передняя тележка перед остановом',
+                14: 'X16	BQ35 закрытие останова',
+                15: 'X17	BQ36 закрытие останова ',
+                16: 'X20	Ручной режим останов ОТКРЫТЬ',
+                17: 'X21	Ручной режим останов ЗАКРЫТЬ',
+                18: 'X22	ЦЕПЬ',
+                19: 'X23	Резерв',
+                20: 'X24	NEW_BQ21 датчик конца звена',
+                21: 'X25	NEW_BQ22 датчик начала звена',
+                22: 'X26	Резерв',
+                23: 'X27	Резерв',
+                24: 'X30	останов ПОЗ-1 Закладка',
+                25: 'X31	останов ПОЗ-3 Мост',
+                26: 'X32	останов ПОЗ-5 Кардан',
+                27: 'X33	останов ПОЗ-7 Переворот',
+                28: 'X34	останов ПОЗ-10 Двигатель',
+                29: 'X35	останов ПОЗ-14 Радиатор',
+                30: 'X36	останов Натяжитель цепи (подвал)',
+                31: 'X37	останов ПОЗ-26 Кабина',
+                32: 'X40	останов ПОЗ-29 Надрамник',
+                33: 'X41	останов ПОЗ-23 Заправка',
+                34: 'X42	останов ПОЗ-32 Спуск'
+            },
+            Y: {
+                0: 'Y0 Шток останова 1: Открыть',
+                1: 'Y1 Шток останова 1: Закрыть',
+                2: 'Y2 Шток останова 2: Открыть',
+                3: 'Y3 Шток останова 2: Закрыть',
+                5: 'Y5 Сигнал АВАРИИ из КОНТРОЛЛЕРА 0-активный'
+            },
+            C: {
+                30: 'C30 Время стоп закладка',
+                31: 'C31 Время стоп мост',
+                32: 'C32 Время стоп кардан',
+                33: 'C33 Время стоп переварот',
+                34: 'C34 Время стоп двигатель',
+                35: 'C35 Время стоп радиатор',
+                36: 'C36 Время стоп подвал',
+                37: 'C37 Время стоп кабина',
+                40: 'C40 Время стоп надрамник',
+                41: 'C41 Время стоп заправка',
+                42: 'C42 Время стоп спуск',
+                44: 'C44 Время стоп от контроллера',
+                45: 'C45 Время движения цепи',
+                46: 'C46 Время стоп цепи',
+                50: 'C50 Время работы контроллера',
+                101: 'С101 Энерго независимый счетчик 1 X4 или X5',
+                102: 'С102 Энерго независимый счетчик основной',
+                103: 'С103 Энерго независимый счетчик 2 X24 + X25',
+                104: 'С104 Энерго независимый счетчик при движении в -',
+                110: 'С110 Энерго независимый счетчик машин'
+            },
+            L: {
+                0: 'L0 база  не выбрана',
+                1: 'L1 сработка датчика при остановленной цепи',
+                2: 'L2 Авария X24/X25',
+                3: 'L3 Необходимо выбрать расстаяние между передними стойками',
+                4: 'L4 Неопределенное состояние остановов',
+                11: 'L11 сигналы S9 и S10 не равны',
+                12: 'L12 сигналы S37 и S38 не равны',
+                13: 'L13 Ошибка!!! Нет передней тележки в останове (S9/S10)',
+                14: 'L14 Ручн. реж. Цепь STOP',
+                16: 'L16 Ошибка!!! Нет задней тележки в останове (S37/S38)',
+                22: 'L22 сигналы S21 и S22 не равны',
+                23: 'L23 сигналы S35 и S36 не равны',
+                39: 'L39 Предупреждение!!! Нет Задания!!! ',
+                41: 'L41 Переключитесь на работу от останова 2 Останов 1 не исправен!!!',
+                42: 'L42 Переключитесь на работу от останова 1 Останов 2 не исправен!!!',
+                43: 'L43 Авария датчиков S9,S10,S37,S38    Тележка в останове не определена!',
+                44: 'L44 S35 неисправен',
+                45: 'L45 S36 неисправен',
+                50: 'L50 Несоответствие  y0=1 s15=0',
+                51: 'L51 Несоответствие  y0=0 s15=1',
+                52: 'L52 Несоответствие  y1=1 s15=0',
+                53: 'L53 Несоответствие  y1=0 s15=1',
+                54: 'L54 Несоответствие  y2=1 s15=0',
+                55: 'L55 Несоответствие  y2=0 s15=1',
+                56: 'L56 Несоответствие  y3=1 s15=0',
+                57: 'L57 Несоответствие  y3=0 s15=1',
+            },
+            M: {
+                0: 'M0 ЗАНЕСЕНИЯ С АРХИВА В СТРОЧКУ GTSOFT',
+                1: 'M1 для сброса m99 и m101',
+                2: 'M2 кнопка установить "Да" на пульту',
+                3: 'M3 очистка данных задания',
+                4: 'M4 цепь не движется',
+                5: 'M5 Кнопка на пульту откл/вкл слежение(была)',
+                6: 'M6 кнопка на пульту квитирование (игнарирование) датчика закрытия',
+                7: 'M7 Сработает после ввода данных на понели d9',
+                8: 'M8 Сработает после ввода данных на понели d3030',
+                9: 'M9 тригер для экрана ЛОГ',
+                10: 'M10 откат сброс',
+                11: 'M11 Кнопка на пульту выбор остановов',
+                12: 'M12 Кнопка 1-Ручной 0-Авто',
+                13: 'M13 для истории ',
+                14: 'M14 кнопка на экране "Изменить число звеньев"',
+                15: 'M15 обновить данные на экране',
+                16: 'M16 сообщение на экран "задняя база сформирована"',
+                17: 'M17 для пуска цепи из ручного режима',
+                18: 'M18 для очистки сообщения цепь остановлена',
+                19: 'M19 выбран останов в ручном режиме 1/2',
+                20: 'M20 У0 в автомате',
+                21: 'M21 У1 в автомате',
+                22: 'M22 У2 в автомате',
+                23: 'M23 У3 в автомате',
+                24: 'M24 для скрытия и отоброжения кнопки"СЧИТАТЬ С АРХИВА"',
+                25: 'M25 У0 в ручном',
+                26: 'M26 У1 в ручном',
+                27: 'M27 У2 в ручном',
+                28: 'M28 У3 в ручном',
+                29: 'M29 0-надпись ПЕРЕДНЯЯ 1-надпись ЗАДНЯЯ 4 позиция',
+                30: 'M30 1-отобразить 0-крыть 4 позиция',
+                31: 'M31 0-надпись ПЕРЕДНЯЯ 1-надпись ЗАДНЯЯ 3 позиция',
+                32: 'M32 1-отобразить 0-крыть 3 позиция',
+                33: 'M33 0-надпись ПЕРЕДНЯЯ 1-надпись ЗАДНЯЯ 2 позиция',
+                34: 'M34 1-отобразить 0-крыть 2 позиция',
+                35: 'M35 0-надпись ПЕРЕДНЯЯ 1-надпись ЗАДНЯЯ 1 позиция',
+                36: 'M36 1-отобразить 0-крыть 1 позиция',
+                37: 'M37 Движение тележки 4 задняя',
+                38: 'M38 Движение тележки 3 задняя',
+                39: 'M39 Движение тележки 2',
+                40: 'M40 ГДЕ-ТО АВАРИЯ',
+                41: 'M41 Движение тележки 4 передняя',
+                42: 'M42 Движение тележки 3 передняя',
+                44: 'M44 стереть d700',
+                45: 'M45 стоп/пуск узла контроля остановов',
+                46: 'M46 стоп/пуск узла счета баз',
+                50: 'M50 Не соответствие выход = вход в течении 2 сек',
+                51: 'M51 Исключить зацикливание',
+                52: 'M52 M52=0 Сoобщение Необходимо выбрать расстаяние между передними стойками',
+                53: 'M53 M53:=1; надписи 36 и 41 моргают',
+                97: 'M97 УДАЛЕНИЕ СТРОЧКИ СО СМЕЩЕНИЕМ экран рецептов',
+                99: 'M99 начало передняя база',
+                100: 'M100 сдвиг',
+                101: 'M101 начало задняя база',
+                102: 'M102 Сместить задание из списка на 1 позицию',
+                105: 'M105 ОТ ЗАЦИКЛИВАНИЯ при записи архива не cd карту',
+                109: 'M109 S37 задняя тележка в останове',
+                110: 'M110 S38 задняя тележка в останове',
+                111: 'M111 Тригер для формирования истории баз',
+                115: 'M115 S15 останов 1 открыт',
+                116: 'M116 S16 останов 1 закрыт',
+                117: 'M117 S17 останов 2 открыт',
+                118: 'M118 S18 останов 2 закрыт',
+                121: 'M121 S21 счетчик звеньев',
+                122: 'M122 S22 счетчик звеньев',
+                123: 'M123 Счетчик с учетом дребезга',
+                124: 'M124 Счетчик с учетом дребезга',
+                125: 'M125 Счетчик с учетом дребезга',
+                135: 'M135 S35 БВК на закрытие останова',
+                136: 'M136 S36 БВК на закрытие останова',
+                137: 'M137 S9 пернедняя тележка в останове',
+                138: 'M138 S10 пернедняя тележка в останове',
+                199: 'M199 Кнопка сброса ошибок на пульту',
+                200: 'M200 Неверное положение останова',
+                201: 'M201 Нет передней тележки',
+                202: 'M202 число звеньев 33 а передней базы нет',
+                203: 'M203 число звеньев = задней базе а ее нет',
+                204: 'M204 выключить цепь',
+                205: 'M205 нет задней тележки',
+                300: 'M300 переключатель выбор схемы контр/реле',
+                401: 'M401 добавить к модели данные базы',
+                402: 'M402 ЗАНЕСЕНИЯ С АРХИВА В СТРОЧКУ задания экрае рецепты',
+                403: 'M403 Если =1 то данные закладки из вне пересчет длинны и название базы',
+                500: 'M500 память Y0 открыть',
+                501: 'M501 память Y1 закрыть',
+                502: 'M502 память Y2 открыть',
+                503: 'M503 память Y3 закрыть',
+                519: 'M519 Выбранный останов 1-1 0-2',
+                524: 'M524 Выбранный датчик щетчика звеньев с панели ',
+                525: 'M525 Выбранный датчик задняя тележка с панели ',
+                526: 'M526 Выбранный датчик передняя тележка с панели ',
+                527: 'M527 Выбранный датчик на закрытие останова с панели',
+            }
+        };
+
+        const colors = { X: '#4caf50', Y: '#2196f3', M: '#ff9800', L: '#9c27b0', C: '#00e5ff' };
+
+        // Глобальное состояние
+        let currentDateStr = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+        let rawData = []; // Здесь будут храниться загруженные с сервера данные
+        let activeSignals = []; // [{id: 'X_1', type: 'X', index: 1, name: '...'}]
+
+        let calendarDate = new Date(); // Для навигации по календарю
+
+        // ==================== ИНИЦИАЛИЗАЦИЯ ГРАФИКОВ ====================
+        const commonOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { labels: { color: '#d4d4d4', font: { size: 12 } } },
+                zoom: {
+                    pan: { enabled: true, mode: 'x', modifierKey: null },
+                    zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
+                },
+                tooltip: {
+                    enabled: true,
+                    callbacks: {
+                        label: function (context) {
+                            const label = context.dataset.label || '';
+                            const val = context.raw;
+                            const isHigh = (val % 1) > 0.5;
+                            // Показываем точное время из метки оси X
+                            const timeLabel = context.label;
+                            return `${label}: ${isHigh ? 'HIGH (1)' : 'LOW (0)'} [${timeLabel}]`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: '#3e3e42' },
+                    ticks: {
+                        color: '#d4d4d4',
+                        maxRotation: 45,
+                        autoSkip: false, // Показываем все метки при зуме
+                        font: { size: 10 }
+                    }
+                }
+            }
+        };
+
+        const analogChart = new Chart(document.getElementById('analogChart').getContext('2d'), {
+            type: 'line',
+            data: { labels: [], datasets: [] },
+            options: {
+                ...commonOptions,
+                scales: { ...commonOptions.scales, y: { grid: { color: '#3e3e42' }, ticks: { color: '#d4d4d4' } } }
+            }
+        });
+
+        const digitalChart = new Chart(document.getElementById('digitalChart').getContext('2d'), {
+            type: 'line',
+            data: { labels: [], datasets: [] },
+            options: {
+                ...commonOptions,
+                plugins: {
+                    ...commonOptions.plugins,
+                    tooltip: {
+                        callbacks: {
+                            label: function (context) {
+                                const val = context.raw;
+                                const isHigh = (val % 1) > 0.5;
+                                return `${context.dataset.label}: ${isHigh ? 'HIGH (1)' : 'LOW (0)'}`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    ...commonOptions.scales,
+                    'y-digital': {
+                        type: 'linear', position: 'left', min: 0, max: 1,
+                        grid: { color: '#3e3e42' },
+                        ticks: {
+                            color: '#9cdcfe', font: { weight: 'bold', size: 11 },
+                            stepSize: 1,
+                            callback: function (value) {
+                                // Находим сигнал, который находится на этой "дорожке" (laneIndex)
+                                const lane = activeSignals.filter(s => s.type !== 'C')[value];
+                                return lane ? lane.name : '';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // ==================== ЛОГИКА КАЛЕНДАРЯ ====================
+        function renderCalendar() {
+            const grid = document.getElementById('calendarGrid');
+            grid.innerHTML = '';
+
+            const year = calendarDate.getFullYear();
+            const month = calendarDate.getMonth();
+
+            document.getElementById('calendarMonthYear').textContent =
+                calendarDate.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
+
+            const daysOfWeek = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+            daysOfWeek.forEach(d => {
+                const el = document.createElement('div');
+                el.className = 'cal-day-header';
+                el.textContent = d;
+                grid.appendChild(el);
+            });
+
+            const firstDay = new Date(year, month, 1).getDay();
+            const startOffset = firstDay === 0 ? 6 : firstDay - 1;
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+            const todayStr = new Date().toISOString().split('T')[0];
+
+            for (let i = 0; i < startOffset; i++) {
+                grid.appendChild(document.createElement('div'));
+            }
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const el = document.createElement('div');
+                el.className = 'cal-day';
+
+                if (dateStr === todayStr) el.classList.add('today');
+                if (dateStr === currentDateStr) el.classList.add('selected');
+
+                // 🔥 ИСПРАВЛЕНИЕ: Проверяем реальное наличие файла через Set, а не "последние 10 дней"
+                if (availableDatesSet.has(dateStr)) {
+                    el.classList.add('has-data');
+                    el.innerHTML = `<span class="day-number">${day}</span><span class="day-indicator">●</span>`;
+                    el.onclick = () => selectDate(dateStr);
+                } else {
+                    el.innerHTML = `<span class="day-number">${day}</span>`;
+                    el.style.opacity = '0.3';
+                    el.style.cursor = 'default';
+                }
+
+                grid.appendChild(el);
+            }
+        }
+
+        function changeMonth(delta) {
+            calendarDate.setMonth(calendarDate.getMonth() + delta);
+            renderCalendar();
+        }
+
+        // ==================== ЗАГРУЗКА ДАННЫХ ====================
+        async function selectDate(dateStr) {
+            if (dateStr === currentDateStr) return; // Уже выбрано
+
+            currentDateStr = dateStr;
+            document.getElementById('currentDateDisplay').textContent =
+                new Date(dateStr).toLocaleDateString('ru-RU', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+            renderCalendar(); // Обновить выделение
+            await loadDataForDate(dateStr);
+        }
+
+        // ==================== ЗАГРУЗКА ДАННЫХ С ЗАЩИТОЙ ====================
+        // ==================== ЗАГРУЗКА ДАННЫХ С ЗАЩИТОЙ И ПРАВИЛЬНЫМ ПАРСИНГОМ ====================
+        async function loadDataForDate(dateStr) {
+            const loader = document.getElementById('loader');
+            loader.classList.add('active');
+            loader.querySelector('.loader-text').textContent = 'Загрузка и обработка данных...';
+
+            try {
+                const response = await fetch(`/api/timeline_log?date=${dateStr}`);
+                if (!response.ok) throw new Error(`HTTP ошибка: ${response.status}`);
+
+                const data = await response.json();
+
+                // 🔥 ИСПРАВЛЕНИЕ: Правильно извлекаем массив событий из новой структуры JSON
+                let fullData = [];
+                if (data && data.events && Array.isArray(data.events)) {
+                    fullData = data.events; // Новый формат: {"date": "...", "events": [...]}
+                } else if (Array.isArray(data)) {
+                    fullData = data;        // Старый формат: [...]
+                } else {
+                    fullData = [data];      // Формат одного объекта: {...}
+                }
+
+                console.log(`Получено записей с сервера: ${fullData.length}`);
+
+                // 🔥 КРИТИЧЕСКИ ВАЖНО: Прореживание данных (Downsampling)
+                // Если записей больше 2000, оставляем только 1 запись в секунду, 
+                if (fullData.length > 2000) {
+                    console.warn('Данных слишком много. Применяется автоматическое прореживание.');
+                    rawData = downsampleData(fullData);
+                    console.log(`Записей после прореживания: ${rawData.length}`);
+                } else {
+                    rawData = fullData;
+                }
+
+                renderCharts();
+
+            } catch (error) {
+                console.error("Ошибка загрузки:", error);
+                alert(`Не удалось загрузить данные за ${dateStr}.\n${error.message}`);
+                rawData = [];
+                renderCharts();
+            } finally {
+                loader.classList.remove('active');
+            }
+        }
+
+        // Функция умного прореживания данных (остается без изменений)
+        function downsampleData(data) {
+            if (data.length <= 2000) return data; // Если данных мало, не трогаем
+
+            console.warn('Применяется умное прореживание с сохранением фронтов...');
+            const result = [];
+            let lastKeptItem = null;
+
+            for (let i = 0; i < data.length; i++) {
+                const current = data[i];
+                if (!current.ts) continue;
+
+                // Всегда сохраняем первую и последнюю запись
+                if (i === 0 || i === data.length - 1) {
+                    result.push(current);
+                    lastKeptItem = current;
+                    continue;
+                }
+
+                const currentTime = new Date(current.ts).getTime();
+                const lastTime = lastKeptItem ? new Date(lastKeptItem.ts).getTime() : 0;
+
+                // 1. Если прошла 1 секунда или более с последней записи - сохраняем (Heartbeat для счетчиков C)
+                if (currentTime - lastTime >= 1000) {
+                    result.push(current);
+                    lastKeptItem = current;
+                    continue;
+                }
+
+                // 2. ГЛАВНОЕ: Проверяем, изменились ли дискретные сигналы по сравнению с последней СОХРАНЕННОЙ записью
+                // Если хоть один бит изменился, мы ОБЯЗАНЫ сохранить эту запись, чтобы не потерять импульс!
+                let discreteChanged = false;
+
+                // Быстрая проверка через JSON.stringify (для массивов до 500 элементов это очень быстро)
+                if (lastKeptItem) {
+                    if (JSON.stringify(current.X) !== JSON.stringify(lastKeptItem.X)) discreteChanged = true;
+                    else if (JSON.stringify(current.Y) !== JSON.stringify(lastKeptItem.Y)) discreteChanged = true;
+                    else if (JSON.stringify(current.M) !== JSON.stringify(lastKeptItem.M)) discreteChanged = true;
+                    else if (JSON.stringify(current.L) !== JSON.stringify(lastKeptItem.L)) discreteChanged = true;
+                }
+
+                if (discreteChanged) {
+                    result.push(current);
+                    lastKeptItem = current;
+                }
+            }
+
+            console.log(`Прореживание: ${data.length} -> ${result.length} записей (фронты сохранены)`);
+            return result;
+        }
+
+        // ==================== УПРАВЛЕНИЕ СИГНАЛАМИ И ГРАФИКАМИ ====================
+        function updateSignalDropdown() {
+            const type = document.getElementById('signalType').value;
+            const select = document.getElementById('signalIndex');
+            select.innerHTML = '';
+
+            const names = signalNames[type] || {};
+            const indices = Object.keys(names).map(Number).sort((a, b) => a - b);
+
+            indices.forEach(idx => {
+                const option = document.createElement('option');
+                option.value = idx;
+                option.textContent = names[idx];
+                select.appendChild(option);
+            });
+        }
+
+        function addSignal() {
+            const type = document.getElementById('signalType').value;
+            const index = parseInt(document.getElementById('signalIndex').value);
+            const name = signalNames[type][index] || `${type}[${index}]`;
+            const id = `${type}_${index}`;
+
+            if (activeSignals.some(s => s.id === id)) {
+                alert('Этот сигнал уже добавлен на график!');
+                return;
+            }
+
+            activeSignals.push({ id, type, index, name, color: colors[type] });
+            renderActiveList();
+            renderCharts();
+        }
+
+        function removeSignal(id) {
+            activeSignals = activeSignals.filter(s => s.id !== id);
+            renderActiveList();
+            renderCharts();
+        }
+
+        function clearActiveSignals() {
+            activeSignals = [];
+            renderActiveList();
+            renderCharts();
+        }
+
+        function renderActiveList() {
+            const container = document.getElementById('activeSignalsList');
+            container.innerHTML = '';
+
+            if (activeSignals.length === 0) {
+                container.innerHTML = '<span style="color: #888; font-size: 13px;">Нет добавленных сигналов.</span>';
+                return;
+            }
+
+            activeSignals.forEach(sig => {
+                const tag = document.createElement('div');
+                tag.className = 'signal-tag';
+                tag.innerHTML = `
+                    <span class="color-dot" style="background-color: ${sig.color}"></span>
+                    <span>${sig.name}</span>
+                    <button class="remove-btn" onclick="removeSignal('${sig.id}')" title="Удалить">✕</button>
+                `;
+                container.appendChild(tag);
+            });
+        }
+
+        // ==================== ОТРИСОВКА ГРАФИКОВ С ЗАЩИТОЙ ====================
+        // ==================== ОТРИСОВКА ГРАФИКОВ (ОБЪЕДИНЕННАЯ И ИСПРАВЛЕННАЯ) ====================
+        function renderCharts() {
+            // 1. Безопасное форматирование меток времени с миллисекундами
+            const labels = rawData.map(r => {
+                if (!r.ts) return "Нет времени";
+                const d = new Date(r.ts);
+                if (isNaN(d.getTime())) return "Invalid Date";
+                return d.toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    fractionalSecondDigits: 3 // <-- Миллисекунды
+                });
+            });
+
+            // 2. Аналоговые графики (C)
+            const cSignals = activeSignals.filter(s => s.type === 'C');
+            analogChart.data.labels = labels;
+            analogChart.data.datasets = cSignals.map(sig => ({
+                id: sig.id,
+                label: sig.name,
+                data: rawData.map((r, idx) => {
+                    const arrayIndex = sig.index - 30;
+                    let value = (r.C && arrayIndex >= 0 && arrayIndex < r.C.length) ? r.C[arrayIndex] : 0;
+
+                    if (value === 0 && idx > 0 && idx < rawData.length - 1) {
+                        const prevValue = (rawData[idx - 1].C && arrayIndex >= 0 && arrayIndex < rawData[idx - 1].C.length) ? rawData[idx - 1].C[arrayIndex] : 0;
+                        const nextValue = (rawData[idx + 1].C && arrayIndex >= 0 && arrayIndex < rawData[idx + 1].C.length) ? rawData[idx + 1].C[arrayIndex] : 0;
+                        if (prevValue > 50 || nextValue > 50) value = -1;
+                    }
+                    return value;
+                }),
+                borderColor: sig.color,
+                backgroundColor: sig.color,
+                borderWidth: 2,
+                pointRadius: 0,
+                tension: 0.1,
+                segment: {
+                    borderColor: ctx => (ctx.p0.parsed.y === -1 || ctx.p1.parsed.y === -1) ? '#ff4444' : sig.color,
+                    borderDash: ctx => (ctx.p0.parsed.y === -1 || ctx.p1.parsed.y === -1) ? [5, 5] : undefined
+                }
+            }));
+            analogChart.update('none');
+
+            // 3. Дискретные графики (X, Y, M, L)
+            const dSignals = activeSignals.filter(s => s.type !== 'C');
+            digitalChart.data.labels = labels;
+            digitalChart.data.datasets = dSignals.map((sig, laneIndex) => ({
+                id: sig.id,
+                label: sig.name,
+                data: rawData.map(r => {
+                    const val = (r[sig.type] && r[sig.type][sig.index] !== undefined) ? r[sig.type][sig.index] : false;
+                    return val ? (laneIndex + 0.8) : laneIndex;
+                }),
+                borderColor: sig.color,
+                backgroundColor: sig.color,
+                borderWidth: 2,
+                stepped: 'after',
+                pointRadius: 0,
+                fill: false,
+                yAxisID: 'y-digital'
+            }));
+
+            digitalChart.options.scales['y-digital'].max = Math.max(1, dSignals.length);
+
+            // 🔥 ИСПРАВЛЕНИЕ: Math.round предотвращает ошибку undefined при зуме
+            digitalChart.options.scales['y-digital'].ticks.callback = function (value) {
+                const lane = dSignals[Math.round(value)];
+                return lane ? lane.name : '';
+            };
+
+            digitalChart.update('none');
+
+            // 4. Обновляем общее время плеера (то, что было во второй функции)
+            if (rawData.length > 0) {
+                const firstTime = new Date(rawData[0].ts);
+                const lastTime = new Date(rawData[rawData.length - 1].ts);
+                const duration = lastTime - firstTime;
+                document.getElementById('totalTimeDisplay').textContent =
+                    new Date(duration).toISOString().substr(11, 12);
+                // 🔥 ДОБАВИТЬ ЭТИ 2 СТРОКИ: Инициализируем плеер и ленту при загрузке
+                playerState.currentIndex = 0;
+                updateIndicators(); // Это автоматически вызовет updateEventTimeline()
+            }
+        }
+
+        function resetZoom() {
+            analogChart.resetZoom();
+            digitalChart.resetZoom();
+        }
+        // ==================== ПЛЕЕР И ВИЗУАЛИЗАЦИЯ ====================
+        let playerState = {
+            isPlaying: false,
+            currentIndex: 0,
+            speed: 1, // 1x по умолчанию (реальное время)
+            timeoutId: null // Используем setTimeout вместо setInterval для переменной задержки
+        };
+
+        // Конфигурация индикаторов
+        const indicatorConfig = {
+            X: {
+                1: 'Режим работы Выбран Контроллер/Реле',
+                6: 'BQ37 Задняя тележка перед остановом',
+                7: 'BQ38 Задняя тележка перед остановом (дубль)',
+                10: 'BQ15 открыт останов 1',
+                11: 'BQ16 закрыт останов 1',
+                12: 'BQ17 открыт останов 2',
+                13: 'BQ18 закрыт останов 2',
+                14: 'BQ9 передняя тележка перед остановом',
+                15: 'BQ10 передняя тележка перед остановом (дубль)',
+                16: 'BQ35 закрытие останова',
+                17: 'BQ36 закрытие останова (дубль)',
+                18: 'ЦЕПЬ',
+                20: 'NEW_BQ21 датчик конца звена',
+                21: 'NEW_BQ22 датчик начала звена'
+            },
+            Y: {
+                0: 'Шток останова 1: Открыть',
+                1: 'Шток останова 1: Закрыть',
+                2: 'Шток останова 2: Открыть',
+                3: 'Шток останова 2: Закрыть',
+                5: 'Сигнал АВАРИИ из КОНТРОЛЛЕРА (0=активный)'
+            },
+            C: {
+                102: 'Энерго независимый счетчик основной',
+                110: 'Энерго независимый счетчик машин'
+            },
+            // 🔥 НОВЫЙ РАЗДЕЛ: D-регистры
+            D: {
+                100: 'Расстояние между стойками'
+            }
+        };
+
+        // ==================== 1. ИНИЦИАЛИЗАЦИЯ ИНДИКАТОРОВ (Создает HTML) ====================
+        function initIndicators() {
+            // X индикаторы
+            const xContainer = document.getElementById('indicatorsX');
+            if (xContainer) {
+                xContainer.innerHTML = '';
+                Object.entries(indicatorConfig.X).forEach(([idx, desc]) => {
+                    const div = document.createElement('div');
+                    div.className = 'indicator-item';
+                    div.id = `ind_X_${idx}`;
+                    div.innerHTML = `
+                <div class="indicator-light"></div>
+                <div>
+                    <div class="indicator-label">X${parseInt(idx).toString(8).padStart(2, '0')}</div>
+                    <div class="indicator-desc">${desc}</div>
+                </div>
+            `;
+                    xContainer.appendChild(div);
+                });
+            }
+
+            // Y индикаторы
+            const yContainer = document.getElementById('indicatorsY');
+            if (yContainer) {
+                yContainer.innerHTML = '';
+                Object.entries(indicatorConfig.Y).forEach(([idx, desc]) => {
+                    const div = document.createElement('div');
+                    div.className = 'indicator-item';
+                    div.id = `ind_Y_${idx}`;
+                    div.innerHTML = `
+                <div class="indicator-light"></div>
+                <div>
+                    <div class="indicator-label">Y${parseInt(idx).toString(8).padStart(2, '0')}</div>
+                    <div class="indicator-desc">${desc}</div>
+                </div>
+            `;
+                    yContainer.appendChild(div);
+                });
+            }
+
+            // 🔥 Ищем ЛЮБОЙ из возможных контейнеров для счетчиков
+            const cContainer = document.getElementById('countersC') ||
+                document.getElementById('countersGrid') ||
+                document.getElementById('countersD');
+
+            if (cContainer) {
+                cContainer.innerHTML = '';
+
+                // Счетчики C
+                Object.entries(indicatorConfig.C).forEach(([idx, desc]) => {
+                    const div = document.createElement('div');
+                    div.className = 'counter-item';
+                    div.id = `cnt_C_${idx}`;
+                    div.innerHTML = `
+                <div class="counter-value" id="val_C_${idx}">0</div>
+                <div class="counter-label">C${idx}: ${desc}</div>
+            `;
+                    cContainer.appendChild(div);
+                });
+
+                // Регистры D
+                Object.entries(indicatorConfig.D).forEach(([idx, desc]) => {
+                    const div = document.createElement('div');
+                    div.className = 'counter-item';
+                    div.id = `cnt_D_${idx}`;
+                    div.innerHTML = `
+                <div class="counter-value" id="val_D_${idx}" style="color: #00e5ff;">0</div>
+                <div class="counter-label" id="lbl_D_${idx}">D${idx}: ${desc}</div>
+            `;
+                    cContainer.appendChild(div);
+                });
+            } else {
+                console.error('❌ Контейнер для счетчиков не найден! Проверь HTML.');
+            }
+        }
+
+        // ==================== КАРТА ИЗМЕНЕНИЙ (Change Log) ====================
+        // ==================== ЛЕНТА СОБЫТИЙ (Event Timeline) ====================
+        function updateEventTimeline() {
+            if (rawData.length === 0) return;
+
+            const currentIdx = playerState.currentIndex;
+            const timelineEl = document.getElementById('eventTimeline');
+            if (!timelineEl) return;
+
+            const events = [];
+
+            // Показываем 15 кадров до и 15 после текущего
+            const LOOK_BACK = 15;
+            const LOOK_FORWARD = 15;
+            const startIdx = Math.max(0, currentIdx - LOOK_BACK);
+            const endIdx = Math.min(rawData.length - 1, currentIdx + LOOK_FORWARD);
+
+            for (let idx = startIdx; idx <= endIdx; idx++) {
+                const data = rawData[idx];
+                const prevData = idx > 0 ? rawData[idx - 1] : null;
+
+                if (!prevData) continue; // Пропускаем первый кадр
+
+                const frameChanges = [];
+
+                // Проверяем X
+                if (data.X && prevData.X) {
+                    Object.keys(indicatorConfig.X).forEach(xIdx => {
+                        const prevVal = prevData.X[xIdx] || false;
+                        const currVal = data.X[xIdx] || false;
+                        if (prevVal !== currVal) {
+                            frameChanges.push({
+                                type: currVal ? 'rising' : 'falling',
+                                signal: `X${parseInt(xIdx).toString(8).padStart(2, '0')}`,
+                                desc: indicatorConfig.X[xIdx] || '',
+                                from: prevVal ? '1' : '0',
+                                to: currVal ? '1' : '0'
+                            });
+                        }
+                    });
+                }
+
+                // Проверяем Y
+                if (data.Y && prevData.Y) {
+                    Object.keys(indicatorConfig.Y).forEach(yIdx => {
+                        const prevVal = prevData.Y[yIdx] || false;
+                        const currVal = data.Y[yIdx] || false;
+                        if (prevVal !== currVal) {
+                            frameChanges.push({
+                                type: currVal ? 'rising' : 'falling',
+                                signal: `Y${parseInt(yIdx).toString(8).padStart(2, '0')}`,
+                                desc: indicatorConfig.Y[yIdx] || '',
+                                from: prevVal ? '1' : '0',
+                                to: currVal ? '1' : '0'
+                            });
+                        }
+                    });
+                }
+
+                // Проверяем L (реле)
+                if (data.L && prevData.L) {
+                    data.L.forEach((val, lIdx) => {
+                        const prevVal = prevData.L[lIdx] || false;
+                        if (prevVal !== val) {
+                            const desc = signalNames.L[lIdx] || `L${lIdx}`;
+                            frameChanges.push({
+                                type: val ? 'rising' : 'falling',
+                                signal: `L${lIdx}`,
+                                desc: desc,
+                                from: prevVal ? '1' : '0',
+                                to: val ? '1' : '0'
+                            });
+                        }
+                    });
+                }
+
+                // Проверяем C (счетчики)
+                if (data.C && prevData.C) {
+                    Object.keys(indicatorConfig.C).forEach(cIdx => {
+                        const arrayIdx = parseInt(cIdx) - 30;
+                        const prevVal = prevData.C[arrayIdx] || 0;
+                        const currVal = data.C[arrayIdx] || 0;
+                        if (prevVal !== currVal) {
+                            const delta = currVal - prevVal;
+                            frameChanges.push({
+                                type: 'counter',
+                                signal: `C${cIdx}`,
+                                desc: indicatorConfig.C[cIdx] || '',
+                                from: prevVal,
+                                to: currVal,
+                                delta: delta
+                            });
+                        }
+                    });
+                }
+
+                // Проверяем D100
+                if (data.D100 !== undefined && prevData.D100 !== undefined) {
+                    if (data.D100 !== prevData.D100) {
+                        frameChanges.push({
+                            type: 'counter',
+                            signal: 'D100',
+                            desc: 'Расстояние между стойками',
+                            from: prevData.D100,
+                            to: data.D100,
+                            delta: data.D100 - prevData.D100
+                        });
+                    }
+                }
+
+                // Если в этом кадре были изменения, добавляем его в ленту
+                if (frameChanges.length > 0) {
+                    events.push({
+                        idx: idx,
+                        isCurrent: idx === currentIdx,
+                        time: data.ts ? new Date(data.ts).toLocaleTimeString('ru-RU', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                            fractionalSecondDigits: 3
+                        }) : '???:??:??',
+                        changes: frameChanges
+                    });
+                }
+            }
+
+            // Рендерим ленту
+            if (events.length === 0) {
+                timelineEl.innerHTML = '<span style="color: #888;">Нет событий в этом диапазоне</span>';
+                return;
+            }
+
+            timelineEl.innerHTML = events.map(event => {
+                const currentClass = event.isCurrent ? 'current' : '';
+                const currentMarker = event.isCurrent ? ' ▶ ТЕКУЩИЙ' : '';
+
+                const changesHtml = event.changes.map(change => {
+                    let valueText = '';
+                    if (change.type === 'counter') {
+                        valueText = `${change.from} → ${change.to} (Δ${change.delta > 0 ? '+' : ''}${change.delta})`;
+                    } else {
+                        valueText = `${change.from} → ${change.to}`;
+                    }
+
+                    return `
+                <div class="event-item ${change.type}">
+                    <div class="event-content">
+                        <span class="event-signal">${change.signal}</span>
+                        <span class="event-desc">${change.desc}</span>
+                    </div>
+                    <span class="event-value ${change.type}">${valueText}</span>
+                </div>
+            `;
+                }).join('');
+
+                return `
+            <div style="margin-bottom: 8px;">
+                <div class="event-time" style="margin-bottom: 4px; color: ${event.isCurrent ? '#ffc107' : '#888'}; font-weight: ${event.isCurrent ? 'bold' : 'normal'};">
+                    ${event.time}${currentMarker}
+                </div>
+                ${changesHtml}
+            </div>
+        `;
+            }).join('');
+
+            // Автопрокрутка к текущему кадру (МГНОВЕННО, чтобы не дергалось при воспроизведении)
+            const currentEventEl = timelineEl.querySelector('.current');
+            if (currentEventEl) {
+                currentEventEl.scrollIntoView({ behavior: 'auto', block: 'center' });
+            }
+        }
+
+        // ==================== 2. ОБНОВЛЕНИЕ ИНДИКАТОРОВ (Меняет состояние) ====================
+        function updateIndicators() {
+            if (rawData.length === 0) return;
+            const data = rawData[playerState.currentIndex];
+
+            // Обновляем X
+            Object.keys(indicatorConfig.X).forEach(idx => {
+                const el = document.getElementById(`ind_X_${idx}`);
+                if (!el) return;
+                const val = data.X && data.X[idx] ? true : false;
+                val ? el.classList.add('active') : el.classList.remove('active');
+            });
+
+            // Обновляем Y
+            Object.keys(indicatorConfig.Y).forEach(idx => {
+                const el = document.getElementById(`ind_Y_${idx}`);
+                if (!el) return;
+                const val = data.Y && data.Y[idx] ? true : false;
+                val ? el.classList.add('active') : el.classList.remove('active');
+            });
+
+            // Обновляем C
+            Object.keys(indicatorConfig.C).forEach(idx => {
+                const valEl = document.getElementById(`val_C_${idx}`);
+                if (!valEl) return;
+                const arrayIdx = parseInt(idx) - 30;
+                const val = data.C && data.C[arrayIdx] !== undefined ? data.C[arrayIdx] : 0;
+                valEl.textContent = val.toLocaleString();
+            });
+
+            // Обновляем D100 с расшифровкой
+            Object.keys(indicatorConfig.D).forEach(idx => {
+                const valEl = document.getElementById(`val_D_${idx}`);
+                const lblEl = document.getElementById(`lbl_D_${idx}`);
+                if (!valEl || !lblEl) return; // Защита от null
+
+                const val = data.D100 !== undefined ? data.D100 : 0;
+                valEl.textContent = val;
+
+                let statusText = "Не выбрано";
+                if (val === 1) statusText = "✅ Установлено 36";
+                else if (val === 2) statusText = "✅ Установлено 41";
+                else if (val === 3) statusText = "⚠️ ТРЕБОВАНИЕ ВЫБРАТЬ 36/41";
+
+                lblEl.textContent = `D${idx}: ${statusText}`;
+
+                if (val === 3) {
+                    valEl.style.color = '#ff4444';
+                } else {
+                    valEl.style.color = '#00e5ff';
+                }
+            });
+
+            // Обновляем время
+            if (data.ts) {
+                const d = new Date(data.ts);
+                document.getElementById('currentTimeDisplay').textContent =
+                    d.toLocaleTimeString('ru-RU', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        fractionalSecondDigits: 3
+                    });
+            }
+
+            // Обновляем прогресс-бар
+            const progress = (playerState.currentIndex / (rawData.length - 1)) * 100;
+            document.getElementById('playerProgress').value = progress;
+
+            // Синхронизация с графиками
+            syncChartsToPlayer();
+
+            // 🔥 Обновляем ленту событий
+            updateEventTimeline();
+        }
+
+
+        // 🔥 УМНОЕ ВОСПРОИЗВЕДЕНИЕ С УЧЕТОМ РЕАЛЬНОГО ВРЕМЕНИ
+        function playNextFrame() {
+            if (!playerState.isPlaying || playerState.currentIndex >= rawData.length - 1) {
+                playerStop(); // Достигли конца или нажали паузу
+                return;
+            }
+
+            // 1. Берем время текущей и следующей записи
+            const currentTime = new Date(rawData[playerState.currentIndex].ts).getTime();
+            const nextTime = new Date(rawData[playerState.currentIndex + 1].ts).getTime();
+
+            // 2. Считаем реальную разницу в миллисекундах
+            let delta = nextTime - currentTime;
+
+            // Защита от битых данных (если время идет назад или стоит)
+            if (delta <= 0) delta = 100;
+
+            // 3. Делим на скорость (если скорость 2x, задержка будет в 2 раза меньше)
+            const delay = delta / playerState.speed;
+
+            // 4. Ждем нужное время и переходим к следующему кадру
+            playerState.timeoutId = setTimeout(() => {
+                playerState.currentIndex++;
+                updateIndicators();
+                playNextFrame(); // Рекурсивный вызов для следующего кадра
+            }, delay);
+        }
+        function playerPlay() {
+            if (rawData.length === 0 || playerState.isPlaying) return;
+
+            playerState.isPlaying = true;
+            document.getElementById('btnPlay').textContent = '⏸'; // Меняем иконку на паузу
+            playNextFrame();
+        }
+
+        function playerPause() {
+            playerState.isPlaying = false;
+            document.getElementById('btnPlay').textContent = '▶';
+            if (playerState.timeoutId) {
+                clearTimeout(playerState.timeoutId);
+                playerState.timeoutId = null;
+            }
+        }
+
+        function playerStop() {
+            playerPause();
+            playerState.currentIndex = 0;
+            updateIndicators();
+        }
+
+        function playerFirst() {
+            playerPause();
+            playerState.currentIndex = 0;
+            updateIndicators();
+        }
+
+        function playerLast() {
+            playerPause();
+            playerState.currentIndex = rawData.length - 1;
+            updateIndicators();
+        }
+
+        function seekPlayer(percent) {
+            playerPause();
+            const idx = Math.floor((percent / 100) * (rawData.length - 1));
+            playerState.currentIndex = idx;
+            updateIndicators();
+        }
+
+        function changeSpeed() {
+            playerState.speed = parseInt(document.getElementById('playerSpeed').value);
+            // Если уже играет, перезапускаем цикл, чтобы новая скорость применилась сразу
+            if (playerState.isPlaying) {
+                clearTimeout(playerState.timeoutId);
+                playNextFrame();
+            }
+        }
+        // Поиск по времени
+        function jumpToTime() {
+            const timeInput = document.getElementById('timeSearch').value;
+            if (!timeInput || rawData.length === 0) return;
+
+            // Парсим время (формат HH:MM:SS или HH:MM:SS.mmm)
+            const [hours, minutes, seconds] = timeInput.split(':').map(Number);
+            const targetSeconds = hours * 3600 + minutes * 60 + seconds;
+
+            // Ищем ближайшую запись
+            let closestIdx = 0;
+            let minDiff = Infinity;
+
+            rawData.forEach((item, idx) => {
+                if (item.ts) {
+                    const d = new Date(item.ts);
+                    const itemSeconds = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds();
+                    const diff = Math.abs(itemSeconds - targetSeconds);
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        closestIdx = idx;
+                    }
+                }
+            });
+
+            playerState.currentIndex = closestIdx;
+            updateIndicators();
+
+            // Центрируем график на этом времени
+            // (можно добавить позже)
+        }
+        // ==================== СИНХРОНИЗАЦИЯ ГРАФИКОВ С ПЛЕЕРОМ ====================
+        function syncChartsToPlayer() {
+            if (rawData.length === 0) return;
+
+            const currentIdx = playerState.currentIndex;
+            const charts = [analogChart, digitalChart];
+
+            charts.forEach(chart => {
+                // 1. Узнаем текущий видимый диапазон (если пользователь зумил колесиком)
+                let minIdx = chart.scales.x.min !== undefined ? chart.scales.x.min : 0;
+                let maxIdx = chart.scales.x.max !== undefined ? chart.scales.x.max : rawData.length - 1;
+
+                let windowSize = maxIdx - minIdx;
+                if (windowSize <= 10) windowSize = 50; // Минимальный размер окна, если всё сжато
+
+                // 2. Сдвигаем окно так, чтобы текущий индекс был на 20% от левого края
+                let newMin = currentIdx - Math.floor(windowSize * 0.2);
+                let newMax = newMin + windowSize;
+
+                // 3. Защита от вылезания за пределы массива данных
+                if (newMin < 0) {
+                    newMin = 0;
+                    newMax = windowSize;
+                }
+                if (newMax >= rawData.length) {
+                    newMax = rawData.length - 1;
+                    newMin = Math.max(0, newMax - windowSize);
+                }
+
+                // 4. Применяем новые границы к оси X
+                chart.options.scales.x.min = newMin;
+                chart.options.scales.x.max = newMax;
+
+                // 5. Мгновенное обновление БЕЗ анимации (чтобы не лагало при 100x)
+                chart.update('none');
+            });
+        }
+        function clearTimeSearch() {
+            document.getElementById('timeSearch').value = '';
+        }
+
+        // ==================== СТАРТ ====================
+        document.addEventListener('DOMContentLoaded', () => {
+            updateSignalDropdown();
+
+            // Устанавливаем сегодняшнюю дату в UI
+            document.getElementById('currentDateDisplay').textContent =
+                new Date(currentDateStr).toLocaleDateString('ru-RU', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            loadAvailableDates();
+            renderCalendar();
+            initIndicators();
+            // Автоматическая загрузка данных за сегодня при старте
+            loadDataForDate(currentDateStr);
+        });
+    </script>
+</body>
+
+</html>
