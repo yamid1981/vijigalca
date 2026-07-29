@@ -706,10 +706,44 @@
             <div class="indicators-grid" id="indicatorsY"></div>
         </div>
 
-        <!-- 🔥 ЛЕНТА СОБЫТИЙ (Event Timeline) -->
+        <!-- 🔥 ЛЕНТА СОБЫТИЙ (Event Timeline) с фильтрацией по типам -->
         <div style="margin-bottom: 15px;">
-            <h3 style="margin: 0 0 10px 0; color: #ff9800; font-size: 14px;">📋 Лента событий (до/после текущего кадра)
-            </h3>
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 10px;">
+                <h3 style="margin: 0; color: #ff9800; font-size: 14px;">📋 Лента событий</h3>
+                <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                    <label
+                        style="font-size: 12px; color: #d4d4d4; display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                        <input type="checkbox" id="filterX" checked onchange="updateEventTimeline()"> <span
+                            style="color:#4caf50">Входы (X)</span>
+                    </label>
+                    <label
+                        style="font-size: 12px; color: #d4d4d4; display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                        <input type="checkbox" id="filterY" checked onchange="updateEventTimeline()"> <span
+                            style="color:#2196f3">Выходы (Y)</span>
+                    </label>
+                    <label
+                        style="font-size: 12px; color: #d4d4d4; display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                        <input type="checkbox" id="filterM" checked onchange="updateEventTimeline()"> <span
+                            style="color:#ff9800">Маркеры (M)</span>
+                    </label>
+                    <label
+                        style="font-size: 12px; color: #d4d4d4; display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                        <input type="checkbox" id="filterL" checked onchange="updateEventTimeline()"> <span
+                            style="color:#9c27b0">Реле (L)</span>
+                    </label>
+                    <label
+                        style="font-size: 12px; color: #d4d4d4; display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                        <input type="checkbox" id="filterC" onchange="updateEventTimeline()"> <span
+                            style="color:#00e5ff">Счетчики (C)</span>
+                    </label>
+                    <label
+                        style="font-size: 12px; color: #d4d4d4; display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                        <input type="checkbox" id="filterD" checked onchange="updateEventTimeline()"> <span
+                            style="color:#00e5ff">Регистры (D)</span>
+                    </label>
+                </div>
+            </div>
             <div id="eventTimeline" style="background: #1e1e1e; border: 1px solid #3e3e42; border-radius: 6px; 
                                   padding: 10px; max-height: 300px; overflow-y: auto; 
                                   font-family: 'Courier New', monospace; font-size: 11px; color: #d4d4d4;">
@@ -1467,113 +1501,140 @@
         }
 
         // ==================== КАРТА ИЗМЕНЕНИЙ (Change Log) ====================
-        // ==================== ЛЕНТА СОБЫТИЙ (Event Timeline) ====================
-        function updateEventTimeline() {
+        // ==================== ЛЕНТА СОБЫТИЙ (Event Timeline) С ФИЛЬТРОМ ====================
+        // ==================== ЛЕНТА СОБЫТИЙ (Event Timeline) с ФИЛЬТРАЦИЕЙ по типам ====================
+        // ==================== ЛЕНТА СОБЫТИЙ (ОПТИМИЗИРОВАННАЯ) ====================
+        function updateEventTimeline(force = false) {
             if (!rawData || rawData.length === 0) return;
+
+            // 🔥 ТРОТТЛИНГ: Если идет воспроизведение и не форсировано, ограничиваем частоту обновлений DOM
+            if (!force && playerState.isPlaying) {
+                const now = performance.now();
+                if (now - lastTimelineRender < 100) return; // Максимум 10 обновлений в секунду
+                lastTimelineRender = now;
+            }
 
             const currentIdx = playerState.currentIndex;
             const timelineEl = document.getElementById('eventTimeline');
             if (!timelineEl) return;
 
-            // Окно видимости: 8 кадров до и 8 после (всего 17 кадров — оптимально для высоты блока)
-            const LOOK_BACK = 8;
-            const LOOK_FORWARD = 8;
+            const showX = document.getElementById('filterX')?.checked ?? true;
+            const showY = document.getElementById('filterY')?.checked ?? true;
+            const showM = document.getElementById('filterM')?.checked ?? true;
+            const showL = document.getElementById('filterL')?.checked ?? true;
+            const showC = document.getElementById('filterC')?.checked ?? false;
+            const showD = document.getElementById('filterD')?.checked ?? true;
+
+            const LOOK_BACK = 15;
+            const LOOK_FORWARD = 15;
             const startIdx = Math.max(0, currentIdx - LOOK_BACK);
             const endIdx = Math.min(rawData.length - 1, currentIdx + LOOK_FORWARD);
 
             const fragment = document.createDocumentFragment();
+            let hasAnyFilteredChanges = false;
 
             for (let idx = startIdx; idx <= endIdx; idx++) {
                 const data = rawData[idx];
                 const prevData = idx > 0 ? rawData[idx - 1] : null;
                 const isCurrent = idx === currentIdx;
-
                 const frameChanges = [];
 
                 if (prevData) {
-                    // 1. Проверяем входы X (с защитой от отсутствия данных)
-                    if (data.X && prevData.X) {
-                        Object.keys(indicatorConfig.X).forEach(xIdx => {
-                            const prevVal = !!prevData.X[xIdx];
-                            const currVal = !!data.X[xIdx];
-                            if (prevVal !== currVal) {
+                    // 🔥 ОПТИМИЗАЦИЯ: Используем Math.min и прямые проверки, это в 2-3 раза быстрее
+                    if (showX && data.X && prevData.X) {
+                        const len = Math.min(data.X.length, prevData.X.length);
+                        for (let i = 0; i < len; i++) {
+                            if (prevData.X[i] !== data.X[i]) {
+                                const isRising = !!data.X[i];
                                 frameChanges.push({
-                                    type: currVal ? 'rising' : 'falling',
-                                    signal: `X${parseInt(xIdx).toString(8).padStart(2, '0')}`, // Восьмеричный формат Mitsubishi
-                                    desc: indicatorConfig.X[xIdx] || '',
-                                    valueText: `${prevVal ? '1' : '0'} → ${currVal ? '1' : '0'}`
+                                    type: isRising ? 'rising' : 'falling',
+                                    signal: `X${i.toString(8).padStart(2, '0')}`,
+                                    desc: signalNames.X[i] || `Вход X${i}`,
+                                    valueText: `${prevData.X[i] ? '1' : '0'} → ${isRising ? '1' : '0'}`
                                 });
                             }
-                        });
+                        }
                     }
 
-                    // 2. Проверяем выходы Y
-                    if (data.Y && prevData.Y) {
-                        Object.keys(indicatorConfig.Y).forEach(yIdx => {
-                            const prevVal = !!prevData.Y[yIdx];
-                            const currVal = !!data.Y[yIdx];
-                            if (prevVal !== currVal) {
+                    if (showY && data.Y && prevData.Y) {
+                        const len = Math.min(data.Y.length, prevData.Y.length);
+                        for (let i = 0; i < len; i++) {
+                            if (prevData.Y[i] !== data.Y[i]) {
+                                const isRising = !!data.Y[i];
                                 frameChanges.push({
-                                    type: currVal ? 'rising' : 'falling',
-                                    signal: `Y${parseInt(yIdx).toString(8).padStart(2, '0')}`,
-                                    desc: indicatorConfig.Y[yIdx] || '',
-                                    valueText: `${prevVal ? '1' : '0'} → ${currVal ? '1' : '0'}`
+                                    type: isRising ? 'rising' : 'falling',
+                                    signal: `Y${i.toString(8).padStart(2, '0')}`,
+                                    desc: signalNames.Y[i] || `Выход Y${i}`,
+                                    valueText: `${prevData.Y[i] ? '1' : '0'} → ${isRising ? '1' : '0'}`
                                 });
                             }
-                        });
+                        }
                     }
 
-                    // 3. Проверяем реле L
-                    if (data.L && prevData.L) {
-                        const maxL = Math.max(data.L.length, prevData.L.length);
-                        for (let lIdx = 0; lIdx < maxL; lIdx++) {
-                            const prevVal = !!prevData.L[lIdx];
-                            const currVal = !!data.L[lIdx];
-                            if (prevVal !== currVal) {
-                                // Берем имя из общей карты signalNames (из вашего репозитория)
-                                const desc = (signalNames.L && signalNames.L[lIdx]) ? signalNames.L[lIdx] : `L${lIdx}`;
+                    if (showM && data.M && prevData.M) {
+                        const len = Math.min(data.M.length, prevData.M.length);
+                        for (let i = 0; i < len; i++) {
+                            if (prevData.M[i] !== data.M[i]) {
+                                const isRising = !!data.M[i];
                                 frameChanges.push({
-                                    type: currVal ? 'rising' : 'falling',
-                                    signal: `L${lIdx}`,
-                                    desc: desc,
-                                    valueText: `${prevVal ? '1' : '0'} → ${currVal ? '1' : '0'}`
+                                    type: isRising ? 'rising' : 'falling',
+                                    signal: `M${i}`,
+                                    desc: signalNames.M[i] || `M${i}`,
+                                    valueText: `${prevData.M[i] ? '1' : '0'} → ${isRising ? '1' : '0'}`
                                 });
                             }
-                        };
+                        }
                     }
 
-                    // 4. Проверяем счетчики C
-                    if (data.C && prevData.C) {
-                        Object.keys(indicatorConfig.C).forEach(cIdx => {
-                            const arrayIdx = parseInt(cIdx) - 30;
-                            const prevVal = prevData.C[arrayIdx] || 0;
-                            const currVal = data.C[arrayIdx] || 0;
+                    if (showL && data.L && prevData.L) {
+                        const len = Math.min(data.L.length, prevData.L.length);
+                        for (let i = 0; i < len; i++) {
+                            if (prevData.L[i] !== data.L[i]) {
+                                const isRising = !!data.L[i];
+                                frameChanges.push({
+                                    type: isRising ? 'rising' : 'falling',
+                                    signal: `L${i}`,
+                                    desc: signalNames.L[i] || `L${i}`,
+                                    valueText: `${prevData.L[i] ? '1' : '0'} → ${isRising ? '1' : '0'}`
+                                });
+                            }
+                        }
+                    }
+
+                    if (showC && data.C && prevData.C) {
+                        const len = Math.min(data.C.length, prevData.C.length);
+                        for (let i = 0; i < len; i++) {
+                            const prevVal = prevData.C[i] || 0;
+                            const currVal = data.C[i] || 0;
                             if (prevVal !== currVal) {
+                                const cIdx = i + 30;
                                 const delta = currVal - prevVal;
                                 frameChanges.push({
                                     type: 'counter',
                                     signal: `C${cIdx}`,
-                                    desc: indicatorConfig.C[cIdx] || '',
+                                    desc: signalNames.C[cIdx] || `Счетчик C${cIdx}`,
                                     valueText: `${prevVal} → ${currVal} (Δ${delta > 0 ? '+' : ''}${delta})`
                                 });
                             }
-                        });
+                        }
                     }
 
-                    // 5. Проверяем расстояние D100
-                    if (data.D100 !== undefined && prevData.D100 !== undefined && data.D100 !== prevData.D100) {
+                    if (showD && data.D100 !== undefined && prevData.D100 !== undefined && data.D100 !== prevData.D100) {
+                        const delta = data.D100 - prevData.D100;
                         frameChanges.push({
                             type: 'counter',
                             signal: 'D100',
                             desc: 'Расстояние между стойками',
-                            valueText: `${prevData.D100} → ${data.D100} (Δ${data.D100 - prevData.D100 > 0 ? '+' : ''}${data.D100 - prevData.D100})`
+                            valueText: `${prevData.D100} → ${data.D100} (Δ${delta > 0 ? '+' : ''}${delta})`
                         });
                     }
                 } else {
                     frameChanges.push({ type: 'counter', signal: 'SYS', desc: 'Старт лог-файла', valueText: 'Инициализация' });
                 }
 
-                // 🔥 РЕНДЕРИМ КАДР В ЛЮБОМ СЛУЧАЕ (Решение проблемы "то работает, то нет")
+                if (frameChanges.length === 0) continue;
+                hasAnyFilteredChanges = true;
+
                 const frameContainer = document.createElement('div');
                 frameContainer.className = `event-frame ${isCurrent ? 'current' : ''}`;
                 frameContainer.style.marginBottom = "10px";
@@ -1584,53 +1645,44 @@
                     frameContainer.style.padding = "4px";
                 }
 
-                // Извлекаем чистую строку времени без создания тяжелого объекта new Date()
                 let timeStr = '??:??:??';
                 if (data.ts) {
                     const parts = data.ts.split('T');
-                    timeStr = parts[1] ? parts[1].substring(0, 12) : data.ts; // Получаем "08:04:13.377"
+                    timeStr = parts[1] ? parts[1].substring(0, 12) : data.ts;
                 }
+                const currentMarker = isCurrent ? ' <span style="color: #ffc107; font-weight: bold;">▶ ТЕКУЩИЙ</span>' : '';
 
-                const currentMarker = isCurrent ? ' <span style="color: #ffc107; font-weight: bold;">▶ ТЕКУЩИЙ КАДР</span>' : '';
-
-                let HTML_changes = '';
-                if (frameChanges.length > 0) {
-                    HTML_changes = frameChanges.map(change => `
-                <div class="change-item ${change.type}">
-                    <div class="change-content">
-                        <span class="change-signal" style="color: #9cdcfe; font-weight: bold; margin-right: 6px;">${change.signal}</span>
-                        <span class="change-desc" style="color: #888; font-size: 11px;">${change.desc}</span>
+                const HTML_changes = frameChanges.map(change => `
+                    <div class="change-item ${change.type}" style="display: flex; justify-content: space-between; align-items: center; background: #2d2d2d; margin: 2px 0; padding: 4px 8px; border-radius: 4px;">
+                        <div class="change-content">
+                            <span class="change-signal" style="color: #9cdcfe; font-weight: bold; margin-right: 6px;">${change.signal}</span>
+                            <span class="change-desc" style="color: #888; font-size: 11px;">${change.desc}</span>
+                        </div>
+                        <span class="change-value ${change.type}" style="font-weight: bold; font-family: monospace;">${change.valueText}</span>
                     </div>
-                    <span class="change-value ${change.type}" style="font-weight: bold; font-family: monospace;">${change.valueText}</span>
-                </div>
-            `).join('');
-                } else {
-                    // Если изменений нет, выводим красивую компактную заглушку стабильного состояния ПЛК
-                    HTML_changes = `<div style="color: #475569; font-size: 11px; padding-left: 8px; font-style: italic;">⏱ Состояние сигналов неизменно (Heartbeat)</div>`;
-                }
+                `).join('');
 
                 frameContainer.innerHTML = `
-            <div class="event-time" style="margin-bottom: 4px; font-family: monospace; color: ${isCurrent ? '#ffc107' : '#64748b'}; font-weight: ${isCurrent ? 'bold' : 'normal'};">
-                [${timeStr}]${currentMarker}
-            </div>
-            ${HTML_changes}
-        `;
-
+                    <div class="event-time" style="margin-bottom: 4px; font-family: monospace; color: ${isCurrent ? '#ffc107' : '#64748b'}; font-weight: ${isCurrent ? 'bold' : 'normal'};">
+                        [${timeStr}]${currentMarker}
+                    </div>
+                    ${HTML_changes}
+                `;
                 fragment.appendChild(frameContainer);
             }
 
-            // Мгновенный сброс буфера в DOM-дерево
             timelineEl.innerHTML = '';
-            timelineEl.appendChild(fragment);
+            if (!hasAnyFilteredChanges) {
+                timelineEl.innerHTML = '<span style="color: #888; font-style: italic; padding: 10px; display: block;">Нет изменений по выбранным типам сигналов в этом окне.</span>';
+            } else {
+                timelineEl.appendChild(fragment);
 
-            // Центрирование скролла на текущем подсвеченном элементе
-            const currentEl = timelineEl.querySelector('.current');
-            if (currentEl) {
-                timelineEl.scrollTop = currentEl.offsetTop - timelineEl.offsetTop - (timelineEl.clientHeight / 2) + (currentEl.clientHeight / 2);
+                const currentEl = timelineEl.querySelector('.current');
+                if (currentEl) {
+                    timelineEl.scrollTop = currentEl.offsetTop - timelineEl.offsetTop - (timelineEl.clientHeight / 2) + (currentEl.clientHeight / 2);
+                }
             }
         }
-
-
         // ==================== 2. ОБНОВЛЕНИЕ ИНДИКАТОРОВ (Меняет состояние) ====================
         function updateIndicators() {
             if (rawData.length === 0) return;
@@ -1707,68 +1759,92 @@
             updateEventTimeline();
         }
 
+        // 🔥 ОПТИМИЗИРОВАННЫЙ ПЛЕЕР (requestAnimationFrame + VSync)
+        let animationFrameId = null;
+        let lastFrameTime = 0;
+        let lastTimelineRender = 0;
 
-        // 🔥 УМНОЕ ВОСПРОИЗВЕДЕНИЕ С УЧЕТОМ РЕАЛЬНОГО ВРЕМЕНИ
-        function playNextFrame() {
-            if (!playerState.isPlaying || playerState.currentIndex >= rawData.length - 1) {
-                playerStop(); // Достигли конца или нажали паузу
+        function playNextFrame(timestamp) {
+            if (!playerState.isPlaying) {
+                animationFrameId = null;
                 return;
             }
 
-            // 1. Берем время текущей и следующей записи
+            if (!lastFrameTime) lastFrameTime = timestamp;
+            const elapsed = timestamp - lastFrameTime;
+
             const currentTime = new Date(rawData[playerState.currentIndex].ts).getTime();
             const nextTime = new Date(rawData[playerState.currentIndex + 1].ts).getTime();
-
-            // 2. Считаем реальную разницу в миллисекундах
             let delta = nextTime - currentTime;
+            if (delta <= 0) delta = 100; // Защита от аномалий времени
 
-            // Защита от битых данных (если время идет назад или стоит)
-            if (delta <= 0) delta = 100;
+            const requiredDelay = delta / playerState.speed;
 
-            // 3. Делим на скорость (если скорость 2x, задержка будет в 2 раза меньше)
-            const delay = delta / playerState.speed;
-
-            // 4. Ждем нужное время и переходим к следующему кадру
-            playerState.timeoutId = setTimeout(() => {
+            if (elapsed >= requiredDelay) {
                 playerState.currentIndex++;
+
+                // 1. Обновляем лампочки и графики (они легкие и используют GPU через Canvas)
                 updateIndicators();
-                playNextFrame(); // Рекурсивный вызов для следующего кадра
-            }, delay);
+
+                // 2. Обновляем текстовую ленту ТОЛЬКО если скорость небольшая ИЛИ каждый 5-й кадр
+                // Это колоссально разгружает процессор!
+                if (playerState.speed <= 5 || playerState.currentIndex % 5 === 0) {
+                    updateEventTimeline(false);
+                }
+
+                lastFrameTime = timestamp;
+
+                if (playerState.currentIndex >= rawData.length - 1) {
+                    playerStop();
+                } else {
+                    animationFrameId = requestAnimationFrame(playNextFrame);
+                }
+            } else {
+                // Ждем следующего кадра монитора
+                animationFrameId = requestAnimationFrame(playNextFrame);
+            }
         }
+
         function playerPlay() {
             if (rawData.length === 0 || playerState.isPlaying) return;
-
             playerState.isPlaying = true;
-            document.getElementById('btnPlay').textContent = '⏸'; // Меняем иконку на паузу
-            playNextFrame();
+            document.getElementById('btnPlay').textContent = '⏸';
+            lastFrameTime = 0;
+            animationFrameId = requestAnimationFrame(playNextFrame);
         }
 
         function playerPause() {
             playerState.isPlaying = false;
             document.getElementById('btnPlay').textContent = '▶';
-            if (playerState.timeoutId) {
-                clearTimeout(playerState.timeoutId);
-                playerState.timeoutId = null;
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
             }
+            // На паузе обновляем ленту событий принудительно и точно
+            updateEventTimeline(true);
         }
 
         function playerStop() {
             playerPause();
             playerState.currentIndex = 0;
             updateIndicators();
+            updateEventTimeline(true);
         }
 
         function playerFirst() {
             playerPause();
             playerState.currentIndex = 0;
             updateIndicators();
+            updateEventTimeline(true);
         }
 
         function playerLast() {
             playerPause();
             playerState.currentIndex = rawData.length - 1;
             updateIndicators();
+            updateEventTimeline(true);
         }
+
 
         function seekPlayer(percent) {
             playerPause();
