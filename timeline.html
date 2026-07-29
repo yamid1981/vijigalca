@@ -1469,174 +1469,167 @@
         // ==================== КАРТА ИЗМЕНЕНИЙ (Change Log) ====================
         // ==================== ЛЕНТА СОБЫТИЙ (Event Timeline) ====================
         function updateEventTimeline() {
-            if (rawData.length === 0) return;
+            if (!rawData || rawData.length === 0) return;
 
             const currentIdx = playerState.currentIndex;
             const timelineEl = document.getElementById('eventTimeline');
             if (!timelineEl) return;
 
-            const events = [];
-
-            // Показываем 15 кадров до и 15 после текущего
-            const LOOK_BACK = 15;
-            const LOOK_FORWARD = 15;
+            // Окно видимости: 8 кадров до и 8 после (всего 17 кадров — оптимально для высоты блока)
+            const LOOK_BACK = 8;
+            const LOOK_FORWARD = 8;
             const startIdx = Math.max(0, currentIdx - LOOK_BACK);
             const endIdx = Math.min(rawData.length - 1, currentIdx + LOOK_FORWARD);
+
+            const fragment = document.createDocumentFragment();
 
             for (let idx = startIdx; idx <= endIdx; idx++) {
                 const data = rawData[idx];
                 const prevData = idx > 0 ? rawData[idx - 1] : null;
-
-                if (!prevData) continue; // Пропускаем первый кадр
+                const isCurrent = idx === currentIdx;
 
                 const frameChanges = [];
 
-                // Проверяем X
-                if (data.X && prevData.X) {
-                    Object.keys(indicatorConfig.X).forEach(xIdx => {
-                        const prevVal = prevData.X[xIdx] || false;
-                        const currVal = data.X[xIdx] || false;
-                        if (prevVal !== currVal) {
-                            frameChanges.push({
-                                type: currVal ? 'rising' : 'falling',
-                                signal: `X${parseInt(xIdx).toString(8).padStart(2, '0')}`,
-                                desc: indicatorConfig.X[xIdx] || '',
-                                from: prevVal ? '1' : '0',
-                                to: currVal ? '1' : '0'
-                            });
-                        }
-                    });
-                }
+                if (prevData) {
+                    // 1. Проверяем входы X (с защитой от отсутствия данных)
+                    if (data.X && prevData.X) {
+                        Object.keys(indicatorConfig.X).forEach(xIdx => {
+                            const prevVal = !!prevData.X[xIdx];
+                            const currVal = !!data.X[xIdx];
+                            if (prevVal !== currVal) {
+                                frameChanges.push({
+                                    type: currVal ? 'rising' : 'falling',
+                                    signal: `X${parseInt(xIdx).toString(8).padStart(2, '0')}`, // Восьмеричный формат Mitsubishi
+                                    desc: indicatorConfig.X[xIdx] || '',
+                                    valueText: `${prevVal ? '1' : '0'} → ${currVal ? '1' : '0'}`
+                                });
+                            }
+                        });
+                    }
 
-                // Проверяем Y
-                if (data.Y && prevData.Y) {
-                    Object.keys(indicatorConfig.Y).forEach(yIdx => {
-                        const prevVal = prevData.Y[yIdx] || false;
-                        const currVal = data.Y[yIdx] || false;
-                        if (prevVal !== currVal) {
-                            frameChanges.push({
-                                type: currVal ? 'rising' : 'falling',
-                                signal: `Y${parseInt(yIdx).toString(8).padStart(2, '0')}`,
-                                desc: indicatorConfig.Y[yIdx] || '',
-                                from: prevVal ? '1' : '0',
-                                to: currVal ? '1' : '0'
-                            });
-                        }
-                    });
-                }
+                    // 2. Проверяем выходы Y
+                    if (data.Y && prevData.Y) {
+                        Object.keys(indicatorConfig.Y).forEach(yIdx => {
+                            const prevVal = !!prevData.Y[yIdx];
+                            const currVal = !!data.Y[yIdx];
+                            if (prevVal !== currVal) {
+                                frameChanges.push({
+                                    type: currVal ? 'rising' : 'falling',
+                                    signal: `Y${parseInt(yIdx).toString(8).padStart(2, '0')}`,
+                                    desc: indicatorConfig.Y[yIdx] || '',
+                                    valueText: `${prevVal ? '1' : '0'} → ${currVal ? '1' : '0'}`
+                                });
+                            }
+                        });
+                    }
 
-                // Проверяем L (реле)
-                if (data.L && prevData.L) {
-                    data.L.forEach((val, lIdx) => {
-                        const prevVal = prevData.L[lIdx] || false;
-                        if (prevVal !== val) {
-                            const desc = signalNames.L[lIdx] || `L${lIdx}`;
-                            frameChanges.push({
-                                type: val ? 'rising' : 'falling',
-                                signal: `L${lIdx}`,
-                                desc: desc,
-                                from: prevVal ? '1' : '0',
-                                to: val ? '1' : '0'
-                            });
-                        }
-                    });
-                }
+                    // 3. Проверяем реле L
+                    if (data.L && prevData.L) {
+                        const maxL = Math.max(data.L.length, prevData.L.length);
+                        for (let lIdx = 0; lIdx < maxL; lIdx++) {
+                            const prevVal = !!prevData.L[lIdx];
+                            const currVal = !!data.L[lIdx];
+                            if (prevVal !== currVal) {
+                                // Берем имя из общей карты signalNames (из вашего репозитория)
+                                const desc = (signalNames.L && signalNames.L[lIdx]) ? signalNames.L[lIdx] : `L${lIdx}`;
+                                frameChanges.push({
+                                    type: currVal ? 'rising' : 'falling',
+                                    signal: `L${lIdx}`,
+                                    desc: desc,
+                                    valueText: `${prevVal ? '1' : '0'} → ${currVal ? '1' : '0'}`
+                                });
+                            }
+                        };
+                    }
 
-                // Проверяем C (счетчики)
-                if (data.C && prevData.C) {
-                    Object.keys(indicatorConfig.C).forEach(cIdx => {
-                        const arrayIdx = parseInt(cIdx) - 30;
-                        const prevVal = prevData.C[arrayIdx] || 0;
-                        const currVal = data.C[arrayIdx] || 0;
-                        if (prevVal !== currVal) {
-                            const delta = currVal - prevVal;
-                            frameChanges.push({
-                                type: 'counter',
-                                signal: `C${cIdx}`,
-                                desc: indicatorConfig.C[cIdx] || '',
-                                from: prevVal,
-                                to: currVal,
-                                delta: delta
-                            });
-                        }
-                    });
-                }
+                    // 4. Проверяем счетчики C
+                    if (data.C && prevData.C) {
+                        Object.keys(indicatorConfig.C).forEach(cIdx => {
+                            const arrayIdx = parseInt(cIdx) - 30;
+                            const prevVal = prevData.C[arrayIdx] || 0;
+                            const currVal = data.C[arrayIdx] || 0;
+                            if (prevVal !== currVal) {
+                                const delta = currVal - prevVal;
+                                frameChanges.push({
+                                    type: 'counter',
+                                    signal: `C${cIdx}`,
+                                    desc: indicatorConfig.C[cIdx] || '',
+                                    valueText: `${prevVal} → ${currVal} (Δ${delta > 0 ? '+' : ''}${delta})`
+                                });
+                            }
+                        });
+                    }
 
-                // Проверяем D100
-                if (data.D100 !== undefined && prevData.D100 !== undefined) {
-                    if (data.D100 !== prevData.D100) {
+                    // 5. Проверяем расстояние D100
+                    if (data.D100 !== undefined && prevData.D100 !== undefined && data.D100 !== prevData.D100) {
                         frameChanges.push({
                             type: 'counter',
                             signal: 'D100',
                             desc: 'Расстояние между стойками',
-                            from: prevData.D100,
-                            to: data.D100,
-                            delta: data.D100 - prevData.D100
+                            valueText: `${prevData.D100} → ${data.D100} (Δ${data.D100 - prevData.D100 > 0 ? '+' : ''}${data.D100 - prevData.D100})`
                         });
                     }
+                } else {
+                    frameChanges.push({ type: 'counter', signal: 'SYS', desc: 'Старт лог-файла', valueText: 'Инициализация' });
                 }
 
-                // Если в этом кадре были изменения, добавляем его в ленту
+                // 🔥 РЕНДЕРИМ КАДР В ЛЮБОМ СЛУЧАЕ (Решение проблемы "то работает, то нет")
+                const frameContainer = document.createElement('div');
+                frameContainer.className = `event-frame ${isCurrent ? 'current' : ''}`;
+                frameContainer.style.marginBottom = "10px";
+                if (isCurrent) {
+                    frameContainer.style.background = "#2d2613";
+                    frameContainer.style.border = "1px dashed #ffc107";
+                    frameContainer.style.borderRadius = "4px";
+                    frameContainer.style.padding = "4px";
+                }
+
+                // Извлекаем чистую строку времени без создания тяжелого объекта new Date()
+                let timeStr = '??:??:??';
+                if (data.ts) {
+                    const parts = data.ts.split('T');
+                    timeStr = parts[1] ? parts[1].substring(0, 12) : data.ts; // Получаем "08:04:13.377"
+                }
+
+                const currentMarker = isCurrent ? ' <span style="color: #ffc107; font-weight: bold;">▶ ТЕКУЩИЙ КАДР</span>' : '';
+
+                let HTML_changes = '';
                 if (frameChanges.length > 0) {
-                    events.push({
-                        idx: idx,
-                        isCurrent: idx === currentIdx,
-                        time: data.ts ? new Date(data.ts).toLocaleTimeString('ru-RU', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            second: '2-digit',
-                            fractionalSecondDigits: 3
-                        }) : '???:??:??',
-                        changes: frameChanges
-                    });
-                }
-            }
-
-            // Рендерим ленту
-            if (events.length === 0) {
-                timelineEl.innerHTML = '<span style="color: #888;">Нет событий в этом диапазоне</span>';
-                return;
-            }
-
-            timelineEl.innerHTML = events.map(event => {
-                const currentClass = event.isCurrent ? 'current' : '';
-                const currentMarker = event.isCurrent ? ' ▶ ТЕКУЩИЙ' : '';
-
-                const changesHtml = event.changes.map(change => {
-                    let valueText = '';
-                    if (change.type === 'counter') {
-                        valueText = `${change.from} → ${change.to} (Δ${change.delta > 0 ? '+' : ''}${change.delta})`;
-                    } else {
-                        valueText = `${change.from} → ${change.to}`;
-                    }
-
-                    return `
-                <div class="event-item ${change.type}">
-                    <div class="event-content">
-                        <span class="event-signal">${change.signal}</span>
-                        <span class="event-desc">${change.desc}</span>
+                    HTML_changes = frameChanges.map(change => `
+                <div class="change-item ${change.type}">
+                    <div class="change-content">
+                        <span class="change-signal" style="color: #9cdcfe; font-weight: bold; margin-right: 6px;">${change.signal}</span>
+                        <span class="change-desc" style="color: #888; font-size: 11px;">${change.desc}</span>
                     </div>
-                    <span class="event-value ${change.type}">${valueText}</span>
+                    <span class="change-value ${change.type}" style="font-weight: bold; font-family: monospace;">${change.valueText}</span>
                 </div>
-            `;
-                }).join('');
+            `).join('');
+                } else {
+                    // Если изменений нет, выводим красивую компактную заглушку стабильного состояния ПЛК
+                    HTML_changes = `<div style="color: #475569; font-size: 11px; padding-left: 8px; font-style: italic;">⏱ Состояние сигналов неизменно (Heartbeat)</div>`;
+                }
 
-                return `
-            <div style="margin-bottom: 8px;">
-                <div class="event-time" style="margin-bottom: 4px; color: ${event.isCurrent ? '#ffc107' : '#888'}; font-weight: ${event.isCurrent ? 'bold' : 'normal'};">
-                    ${event.time}${currentMarker}
-                </div>
-                ${changesHtml}
+                frameContainer.innerHTML = `
+            <div class="event-time" style="margin-bottom: 4px; font-family: monospace; color: ${isCurrent ? '#ffc107' : '#64748b'}; font-weight: ${isCurrent ? 'bold' : 'normal'};">
+                [${timeStr}]${currentMarker}
             </div>
+            ${HTML_changes}
         `;
-            }).join('');
 
-            // Автопрокрутка к текущему кадру (МГНОВЕННО, чтобы не дергалось при воспроизведении)
-            const currentEventEl = timelineEl.querySelector('.current');
-            if (currentEventEl) {
-                currentEventEl.scrollIntoView({ behavior: 'auto', block: 'center' });
+                fragment.appendChild(frameContainer);
+            }
+
+            // Мгновенный сброс буфера в DOM-дерево
+            timelineEl.innerHTML = '';
+            timelineEl.appendChild(fragment);
+
+            // Центрирование скролла на текущем подсвеченном элементе
+            const currentEl = timelineEl.querySelector('.current');
+            if (currentEl) {
+                timelineEl.scrollTop = currentEl.offsetTop - timelineEl.offsetTop - (timelineEl.clientHeight / 2) + (currentEl.clientHeight / 2);
             }
         }
+
 
         // ==================== 2. ОБНОВЛЕНИЕ ИНДИКАТОРОВ (Меняет состояние) ====================
         function updateIndicators() {
