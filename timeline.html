@@ -817,6 +817,14 @@
             color: #ff8888;
             font-weight: bold;
         }
+
+        .chart-container.hidden {
+            visibility: hidden;
+            height: 0 !important;
+            overflow: hidden;
+            margin: 0;
+            padding: 0;
+        }
     </style>
 </head>
 
@@ -861,6 +869,14 @@
                     <button onclick="addSignal()">➕ Добавить</button>
                     <button class="btn-danger" onclick="clearActiveSignals()">🗑️ Очистить график</button>
                 </div>
+                <div class="panel active-signals">
+                    <h3>📡 Активные сигналы:</h3>
+                    <div id="activeSignalsList">
+                        <span style="color: #888; font-size: 13px;">Нет добавленных сигналов. Выберите сигнал выше и
+                            нажмите "Добавить".</span>
+                    </div>
+                    <!-- Включение/Отключение панели-->
+                </div>
             </div>
 
             <!-- Правая колонка: Календарь -->
@@ -880,25 +896,28 @@
             </div>
         </div>
 
-        <div class="panel active-signals">
-            <h3>📡 Активные сигналы:</h3>
-            <div id="activeSignalsList">
-                <span style="color: #888; font-size: 13px;">Нет добавленных сигналов. Выберите сигнал выше и нажмите
-                    "Добавить".</span>
-            </div>
+        <div class="controls">
+            <label>
+                <input type="checkbox" id="toggleAnalog" checked>
+                Int сигналы / Счетчики (C)
+            </label>
+            <label>
+                <input type="checkbox" id="toggleDigital" checked>
+                Bool сигналы (X, Y, M, L)
+            </label>
         </div>
 
-        <div class="chart-container" style="height: 300px;">
+        <div class="chart-container" id="analogPanel" style="height: 300px;">
             <div class="chart-title">
-                Аналоговые сигналы / Счетчики (C)
+                Int сигналы / Счетчики (C)
                 <span class="hint">Колесико: масштаб | Перетаскивание: сдвиг</span>
             </div>
             <canvas id="analogChart"></canvas>
         </div>
 
-        <div class="chart-container" style="height: 400px;">
+        <div class="chart-container" id="digitalPanel" style="height: 400px;">
             <div class="chart-title">
-                Дискретные сигналы (X, Y, M, L) — Логический анализатор
+                Bool сигналы (X, Y, M, L) — Логический анализатор
                 <span class="hint">Наведите для просмотра HIGH/LOW</span>
             </div>
             <canvas id="digitalChart"></canvas>
@@ -999,11 +1018,6 @@
                         <input type="checkbox" id="filterC" onchange="updateEventTimeline()"> <span
                             style="color:#00e5ff">Счетчики (C)</span>
                     </label>
-                    <label
-                        style="font-size: 12px; color: #d4d4d4; display: flex; align-items: center; gap: 4px; cursor: pointer;">
-                        <input type="checkbox" id="filterD" checked onchange="updateEventTimeline()"> <span
-                            style="color:#00e5ff">Регистры (D)</span>
-                    </label>
                 </div>
             </div>
             <div id="eventTimeline" style="background: #1e1e1e; border: 1px solid #3e3e42; border-radius: 6px; 
@@ -1019,96 +1033,30 @@
             <div class="counters-grid" id="countersC"></div>
         </div>
     </div>
-    <!-- ==================== ВИЗУАЛИЗАЦИЯ ПРОЦЕССА (КОНВЕЙЕР) ==================== -->
-    <!-- ==================== ВИЗУАЛИЗАЦИЯ ПРОЦЕССА (КОНВЕЙЕР) ==================== -->
-    <div class="panel" style="margin-bottom: 20px; border: 1px solid #4caf50;">
-        <h3 style="margin: 0 0 15px 0; color: #4caf50; font-size: 16px; display: flex; align-items: center; gap: 10px;">
-            🏭 Визуализация процесса формирования базы
-            <span id="chainStatusBadge"
-                style="font-size: 11px; padding: 2px 8px; border-radius: 4px; background: #333; color: #888;">ЦЕПЬ
-                СТОИТ</span>
-        </h3>
 
-        <!-- Основная схема конвейера -->
-        <div class="conveyor-scheme">
-            <div class="conveyor-zone">
-                <div class="zone-label">Подход</div>
-                <div class="truck front-truck" id="visTruckFront">
-                    <div class="truck-body">Передняя<br>тележка</div>
-                    <div class="sensor-indicator" id="visX14" title="S9 (X14)">S9</div>
-                    <div class="sensor-indicator" id="visX15" title="S10 (X15)">S10</div>
-                </div>
-            </div>
-
-            <div class="conveyor-zone stop-zone">
-                <div class="zone-label">Останов (Шток)</div>
-                <div class="stop-gate-container">
-                    <div class="stop-rod" id="visStopRod"></div>
-                    <div class="stop-base">Опорная плита</div>
-                </div>
-                <div class="stop-sensors">
-                    <div class="sensor-badge" id="visX10" title="Открыт (X10)">Откр.</div>
-                    <div class="sensor-badge" id="visX11" title="Закрыт (X11)">Закр.</div>
-                    <div class="sensor-badge" id="visX16" title="Закрытие BQ35 (X16)">BQ35</div>
-                </div>
-            </div>
-
-            <div class="conveyor-zone">
-                <div class="zone-label">Формирование задней тележки</div>
-                <div class="truck rear-truck" id="visTruckRear">
-                    <div class="truck-body">Задняя<br>тележка</div>
-                    <div class="sensor-indicator" id="visX6" title="S37 (X6)">S37</div>
-                    <div class="sensor-indicator" id="visX7" title="S38 (X7)">S38</div>
-                </div>
-            </div>
-
-            <div class="chain-track" id="visChainTrack"></div>
-        </div>
-
-        <!-- 🔥 НОВЫЙ БЛОК: Причины останова (появляется только при X22=0) -->
-        <div id="stopReasonsContainer"
-            style="display: none; margin-bottom: 15px; padding: 12px; background: #2d1a1a; border: 1px solid #f44336; border-radius: 6px;">
-            <div
-                style="color: #ff8888; font-weight: bold; margin-bottom: 8px; font-size: 12px; display: flex; align-items: center; gap: 6px;">
-                ⚠️ ПРИЧИНА ОСТАНОВА ЦЕПИ (X22=0):
-            </div>
-            <ul id="stopReasonsList"
-                style="margin: 0; padding-left: 20px; color: #ffaaaa; font-size: 11px; line-height: 1.5; font-family: 'Courier New', monospace;">
-            </ul>
-        </div>
-
-        <!-- Панель критических параметров -->
-        <div class="process-data-panel">
-            <div class="data-group">
-                <div class="data-item">
-                    <span class="data-label">Цель (D714):</span>
-                    <span class="data-value" id="visD714">0</span>
-                </div>
-                <div class="data-item">
-                    <span class="data-label">Сброс (D4000):</span>
-                    <span class="data-value" id="visD4000">0</span>
-                </div>
-                <div class="data-item">
-                    <span class="data-label">Счетчик (C110):</span>
-                    <span class="data-value" id="visC110">0</span>
-                </div>
-            </div>
-
-            <div class="alarm-group" id="visAlarmPanel" style="display: none;">
-                <div class="alarm-icon">🚨</div>
-                <div class="alarm-text">
-                    <div style="font-weight: bold; color: #ff4444;">АВАРИЯ (Y5=0)</div>
-                    <div style="font-size: 11px; color: #ff8888;">Проверьте список причин выше</div>
-                </div>
-            </div>
-
-            <div class="normal-group" id="visNormalPanel">
-                <div style="color: #4caf50; font-weight: bold; font-size: 13px;">✅ Система в норме, цикл продолжается
-                </div>
-            </div>
-        </div>
-    </div>
     <script>
+        const panels = {
+            toggleAnalog: document.getElementById('analogPanel'),
+            toggleDigital: document.getElementById('digitalPanel')
+        };
+
+        Object.keys(panels).forEach(chkId => {
+            const checkbox = document.getElementById(chkId);
+            const panel = panels[chkId];
+
+            checkbox.addEventListener('change', () => {
+                if (checkbox.checked) {
+                    panel.classList.remove('hidden');
+                } else {
+                    panel.classList.add('hidden');
+                }
+
+                // Важно для Chart.js: при возврате canvas в DOM нужно пересчитать размеры
+                const canvas = panel.querySelector('canvas');
+                const chart = Chart.getChart(canvas); // Chart.js v3+
+                if (chart) chart.resize();
+            });
+        });
         let availableDatesSet = new Set(); // Хранит реальные даты с данными
         // Добавь новую функцию для загрузки списка дат при старте:
         async function loadAvailableDates() {
@@ -1873,7 +1821,6 @@
             const showM = document.getElementById('filterM')?.checked ?? true;
             const showL = document.getElementById('filterL')?.checked ?? true;
             const showC = document.getElementById('filterC')?.checked ?? false;
-            const showD = document.getElementById('filterD')?.checked ?? true;
 
             const LOOK_BACK = 15;
             const LOOK_FORWARD = 15;
@@ -1969,15 +1916,6 @@
                         }
                     }
 
-                    if (showD && data.D100 !== undefined && prevData.D100 !== undefined && data.D100 !== prevData.D100) {
-                        const delta = data.D100 - prevData.D100;
-                        frameChanges.push({
-                            type: 'counter',
-                            signal: 'D100',
-                            desc: 'Расстояние между стойками',
-                            valueText: `${prevData.D100} → ${data.D100} (Δ${delta > 0 ? '+' : ''}${delta})`
-                        });
-                    }
                 } else {
                     frameChanges.push({ type: 'counter', signal: 'SYS', desc: 'Старт лог-файла', valueText: 'Инициализация' });
                 }
@@ -2104,8 +2042,6 @@
 
             // Синхронизация с графиками
             syncChartsToPlayer();
-            // 🔥 ДОБАВЬТЕ ЭТУ СТРОКУ:
-            updateConveyorVisualization();
             // 🔥 Обновляем ленту событий
             updateEventTimeline();
         }
@@ -2283,157 +2219,7 @@
         function clearTimeSearch() {
             document.getElementById('timeSearch').value = '';
         }
-        // ==================== ВИЗУАЛИЗАЦИЯ КОНВЕЙЕРА ====================
-        // ==================== ВИЗУАЛИЗАЦИЯ КОНВЕЙЕРА И ПРИЧИН ОСТАНОВА ====================
-        // ==================== ВИЗУАЛИЗАЦИЯ КОНВЕЙЕРА И ПРИЧИН ОСТАНОВА (ИСПРАВЛЕННАЯ) ====================
-        function updateConveyorVisualization() {
-            if (rawData.length === 0) return;
-            const data = rawData[playerState.currentIndex];
 
-            // Словари для расшифровки причин
-            const stopReasonsX = {
-                30: 'X30: останов ПОЗ-1 Закладка',
-                31: 'X31: останов ПОЗ-3 Мост',
-                32: 'X32: останов ПОЗ-5 Кардан',
-                33: 'X33: останов ПОЗ-7 Переворот',
-                34: 'X34: останов ПОЗ-10 Двигатель',
-                35: 'X35: останов ПОЗ-14 Радиатор',
-                36: 'X36: останов Натяжитель цепи (подвал)',
-                37: 'X37: останов ПОЗ-26 Кабина',
-                40: 'X40: останов ПОЗ-29 Надрамник',
-                41: 'X41: останов ПОЗ-23 Заправка',
-                42: 'X42: останов ПОЗ-32 Спуск'
-            };
-
-            const alarmReasonsL = {
-                0: 'L0: база не выбрана',
-                1: 'L1: сработка датчика при остановленной цепи',
-                2: 'L2: Авария X24/X25',
-                3: 'L3: Необходимо выбрать расстояние между передними стойками',
-                4: 'L4: Неопределенное состояние остановов',
-                11: 'L11: сигналы S9 и S10 не равны',
-                12: 'L12: сигналы S37 и S38 не равны',
-                13: 'L13: Ошибка!!! Нет передней тележки в останове (S9/S10)',
-                14: 'L14: Ручн. реж. Цепь STOP',
-                16: 'L16: Ошибка!!! Нет задней тележки в останове (S37/S38)',
-                22: 'L22: сигналы S21 и S22 не равны',
-                23: 'L23: сигналы S35 и S36 не равны',
-                39: 'L39: Предупреждение!!! Нет Задания!!!',
-                41: 'L41: Переключитесь на работу от останова 2, Останов 1 не исправен!!!',
-                42: 'L42: Переключитесь на работу от останова 1, Останов 2 не исправен!!!',
-                43: 'L43: Авария датчиков S9,S10,S37,S38. Тележка в останове не определена!',
-                44: 'L44: S35 неисправен',
-                45: 'L45: S36 неисправен'
-            };
-
-            // 🔥 ИСПРАВЛЕНИЕ: Вычисляем оба состояния сразу в общей области видимости функции
-            const chainMoving = data.X && data.X[22];
-            const y5Active = data.Y && data.Y[5]; // Теперь эта переменная видна везде в этой функции
-
-            const chainTrack = document.getElementById('visChainTrack');
-            const chainBadge = document.getElementById('chainStatusBadge');
-            const stopReasonsContainer = document.getElementById('stopReasonsContainer');
-            const stopReasonsList = document.getElementById('stopReasonsList');
-
-            if (chainMoving) {
-                chainTrack.classList.add('moving');
-                chainBadge.textContent = 'ЦЕПЬ ДВИЖЕТСЯ (X22=1)';
-                chainBadge.style.background = '#1a3d1a';
-                chainBadge.style.color = '#4caf50';
-                stopReasonsContainer.style.display = 'none'; // Скрываем причины при движении
-            } else {
-                chainTrack.classList.remove('moving');
-                chainBadge.textContent = 'ЦЕПЬ СТОИТ (X22=0)';
-                chainBadge.style.background = '#3d1a1a';
-                chainBadge.style.color = '#f44336';
-
-                // СБОР ПРИЧИН ОСТАНОВА
-                const reasons = [];
-
-                // 1. Проверяем активные остановы (X30-X42)
-                if (data.X) {
-                    Object.keys(stopReasonsX).forEach(idx => {
-                        if (data.X[idx]) {
-                            reasons.push(`<li class="stop-pos">${stopReasonsX[idx]}</li>`);
-                        }
-                    });
-                }
-
-                // 2. Проверяем аварию Y5=0 и соответствующие L-флаги
-                if (!y5Active) {
-                    if (data.L) {
-                        Object.keys(alarmReasonsL).forEach(idx => {
-                            if (data.L[idx]) {
-                                reasons.push(`<li class="alarm-l">${alarmReasonsL[idx]}</li>`);
-                            }
-                        });
-                    }
-                    if (reasons.length === 0) {
-                        reasons.push(`<li class="alarm-l">Сигнал АВАРИИ (Y5=0), но конкретный L-флаг не активен</li>`);
-                    }
-                }
-
-                // Отображаем список причин
-                if (reasons.length > 0) {
-                    stopReasonsList.innerHTML = reasons.join('');
-                    stopReasonsContainer.style.display = 'block';
-                } else {
-                    stopReasonsList.innerHTML = '<li>Цепь остановлена вручную или причина не зафиксирована в флагах</li>';
-                    stopReasonsContainer.style.display = 'block';
-                }
-            }
-
-            // 3. Передняя тележка (X14=S9, X15=S10)
-            const frontTruck = document.getElementById('visTruckFront');
-            const hasFront = (data.X && (data.X[14] || data.X[15]));
-            frontTruck.classList.toggle('active', !!hasFront);
-            document.getElementById('visX14').classList.toggle('active', !!(data.X && data.X[14]));
-            document.getElementById('visX15').classList.toggle('active', !!(data.X && data.X[15]));
-
-            // 4. Задняя тележка (X6=S37, X7=S38)
-            const rearTruck = document.getElementById('visTruckRear');
-            const hasRear = (data.X && (data.X[6] || data.X[7]));
-            rearTruck.classList.toggle('active', !!hasRear);
-            document.getElementById('visX6').classList.toggle('active', !!(data.X && data.X[6]));
-            document.getElementById('visX7').classList.toggle('active', !!(data.X && data.X[7]));
-
-            // 5. Шток останова
-            const stopRod = document.getElementById('visStopRod');
-            const isOpen = data.X && (data.X[10] || (data.Y && data.Y[0]));
-
-            if (isOpen) {
-                stopRod.classList.add('open');
-                stopRod.title = "Останов ОТКРЫТ";
-            } else {
-                stopRod.classList.remove('open');
-                stopRod.title = "Останов ЗАКРЫТ";
-            }
-
-            document.getElementById('visX10').classList.toggle('active', !!(data.X && data.X[10]));
-            document.getElementById('visX11').classList.toggle('active', !!(data.X && data.X[11]));
-            document.getElementById('visX16').classList.toggle('active', !!(data.X && data.X[16]));
-
-            // 6. Обновление регистров и счетчиков
-            const d714 = data.D714 !== undefined ? data.D714 : (data.D && data.D[714] !== undefined ? data.D[714] : 0);
-            const d4000 = data.D4000 !== undefined ? data.D4000 : (data.D && data.D[4000] !== undefined ? data.D[4000] : 0);
-            const c110 = data.C && data.C[80] !== undefined ? data.C[80] : 0; // C110 = индекс 80 (110-30)
-
-            document.getElementById('visD714').textContent = d714;
-            document.getElementById('visD4000').textContent = d4000;
-            document.getElementById('visC110').textContent = c110;
-
-            // 7. Управление блоком общей аварии (теперь y5Active гарантированно определен)
-            const alarmPanel = document.getElementById('visAlarmPanel');
-            const normalPanel = document.getElementById('visNormalPanel');
-
-            if (!chainMoving && (!y5Active || (data.L && Object.values(data.L).some(v => v)))) {
-                alarmPanel.style.display = 'flex';
-                normalPanel.style.display = 'none';
-            } else {
-                alarmPanel.style.display = 'none';
-                normalPanel.style.display = 'flex';
-            }
-        }
         // ==================== СТАРТ ====================
         document.addEventListener('DOMContentLoaded', () => {
             updateSignalDropdown();
