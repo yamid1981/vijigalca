@@ -858,17 +858,13 @@ def get_timeline_log_path(date=None):
 
 @app.route('/api/timeline_data')
 def get_timeline_data():
-    """Получение данных для timeline за выбранную дату"""
     date_str = request.args.get('date')
-    
     if not date_str:
         date_str = datetime.now().strftime("%Y-%m-%d")
-    
     try:
-        # Читаем events из файла за выбранную дату
-        log_path = get_log_path(datetime.strptime(date_str, "%Y-%m-%d"))
+        # Читаем напрямую из timeline_log, где лежат полные кадры ПЛК
+        log_path = get_timeline_log_path(datetime.strptime(date_str, "%Y-%m-%d"))
         events = []
-        
         if os.path.exists(log_path):
             with open(log_path, 'r', encoding='utf-8') as f:
                 for line in f:
@@ -878,21 +874,11 @@ def get_timeline_data():
                             events.append(json.loads(line))
                         except:
                             pass
-        
-        # Фильтруем только X, Y, C, L, M
-        filtered_events = []
-        for event in events:
-            tag = event.get('tag', '')
-            if tag and (tag[0] in ['X', 'Y', 'C', 'L', 'M'] or 
-                       tag.startswith('CN') or tag.startswith('D')):
-                filtered_events.append(event)
-        
         return jsonify({
             'date': date_str,
-            'events': filtered_events,
-            'total_events': len(filtered_events)
+            'events': events,
+            'total_events': len(events)
         })
-        
     except Exception as e:
         print(f"Ошибка в get_timeline_data: {e}")
         return jsonify({'error': str(e)}), 500
