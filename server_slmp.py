@@ -454,9 +454,15 @@ def write_timeline_log(plc_data: Dict):
         log_entry = {
             # ОПТИМИЗАЦИЯ: Убран избыточный вызов datetime для ISO-строки, f-строка быстрее
             "ts": datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3], 
+            "poll_duration": plc_data.get("poll_duration", 0.0),
             "X": current_X, "Y": current_Y, "L": current_L, "M": current_M,
             "C": current_C,
-            "D100": plc_data.get("D100", 0)
+            "D100": plc_data.get("D100", 0),
+            "D714": plc_data.get("D714", 0),
+            "D4000": plc_data.get("D4000", 0),
+            # "D7016": plc_data.get("D7016", []),
+            "D2000": plc_data.get("D2000", []),
+            "D700": plc_data.get("D700", [])
         }
         
         log_path = get_timeline_log_path()
@@ -496,7 +502,7 @@ def red_slmp(read_rd: bool = False, max_retries: int = 3) -> Optional[Dict]:
             # Читаем счетчики (C30-C140 = 111 слов)
             rc = mc.batchread_wordunits("CN30", 111)
             
-            d7016 = mc.batchread_wordunits("D7016", 496)
+            # d7016 = mc.batchread_wordunits("D7016", 496)
             d2000 = mc.batchread_wordunits("D2000", 16)
             d700 = mc.batchread_wordunits("D700", 16)
             # 🔥 ДОБАВЛЕНО: Чтение регистров, нужных для событий во Flask
@@ -525,13 +531,14 @@ def red_slmp(read_rd: bool = False, max_retries: int = 3) -> Optional[Dict]:
                 "L": [bool(l) for l in rl],
                 "M": [bool(m) for m in rm],
                 "C": rc,
-                "D7016": d7016,
+                # "D7016": d7016,
                 "D2000": d2000,
                 "D700": d700,
                 "D714": d714,
                 "D4000": d4000,
                 "D100": d100,  # 🔥 ДОБАВИТЬ
-                "RD": all_data_rd
+                "RD": all_data_rd,
+                "poll_duration": round(time.perf_counter() - start_time, 4) 
             }
             
             # Записываем в timeline лог для визуализации
