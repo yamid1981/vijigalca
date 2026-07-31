@@ -1494,7 +1494,7 @@
                 valmashin.textContent = linksMash;
 
                 // Время опроса ПЛК (мс) — записывается в лог из poll_duration_ms
-                const pollMsVal = data.poll_ms !== undefined ? data.poll_ms : 0;
+                const pollMsVal = data.poll_duration !== undefined ? data.poll_duration : 0;
                 if (valPollMs) valPollMs.textContent = pollMsVal;
 
                 // Аварии (L2, L13, L16, L43)
