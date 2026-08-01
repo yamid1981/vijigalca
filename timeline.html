@@ -464,18 +464,20 @@
 
         /* ==================== СТИЛИ ВИЗУАЛИЗАЦИИ КОНВЕЙЕРА ==================== */
         .conveyor-scheme {
-            position: relative;
-            height: 160px;
-            background: #1a1a1a;
-            border: 1px solid #3e3e42;
-            border-radius: 6px;
-            display: flex;
+            position: relative !important;
+            /* ДОБАВЛЕНО: привязка для дорожки цепи */
+            display: flex !important;
+            flex-direction: row !important;
+            justify-content: flex-start !important;
             align-items: flex-end;
-            justify-content: space-around;
-            padding: 0 20px 20px 20px;
-            margin-bottom: 15px;
-            overflow: hidden;
+            /* ИЗМЕНЕНО: выравнивание по низу, чтобы всё стояло на дорожке */
+            gap: 20px;
+            width: 100%;
+            box-sizing: border-box;
+            padding-bottom: 30px;
+            /* ДОБАВЛЕНО: отступ снизу, чтобы место для цепи не перекрывалось */
         }
+
 
         .chain-track {
             position: absolute;
@@ -492,6 +494,23 @@
             background: repeating-linear-gradient(90deg, #4caf50 0px, #4caf50 10px, #2e7d32 10px, #2e7d32 20px);
             animation: chainMove 1s linear infinite;
         }
+
+        .cep {
+            /* Убраны старые абсолютные позиционирования, добавлен нормальный стиль для плашки */
+            background: #2d2d2d;
+            border: 2px solid #555;
+            border-radius: 6px;
+            padding: 15px;
+            min-width: 120px;
+            text-align: center;
+            font-weight: bold;
+            color: #fff;
+            margin-bottom: 10px;
+            /* Немного приподнимаем над самой линией цепи */
+            z-index: 2;
+            position: relative;
+        }
+
 
         @keyframes chainMove {
             from {
@@ -720,6 +739,185 @@
             margin: 0;
             padding: 0;
         }
+
+        /* Главный вертикальный контейнер останова (прижат влево) */
+        .stop-zone-vertical {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            width: 250px;
+            background: #111;
+            padding: 4px;
+            border-radius: 6px;
+            gap: 10px;
+            box-sizing: border-box;
+
+            /* ИСПРАВЛЕНИЕ: убираем 46em и пишем auto */
+            margin-right: auto;
+            margin-left: 0;
+        }
+
+
+        /* Строки с датчиками (верхняя и нижняя) */
+        .sensor-row {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        /* Сброс старых абсолютных координат */
+        #x6,
+        #x7,
+        #x14,
+        #x15,
+        #stoika {
+            position: static !important;
+            font-family: monospace;
+            font-size: 13px;
+            color: #aaa;
+        }
+
+        /* Выделение текста "Останов свободен" */
+        #stoika {
+            color: #4caf50;
+            font-weight: bold;
+        }
+
+        /* Фиксированная зона для тележки между датчиками */
+        .cart-visual-box {
+            width: 100%;
+            height: 65px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            /* Тележка появляется с левого края своего блока */
+            position: relative;
+        }
+
+        /* Базовый класс графической тележки */
+        .cart-element {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            /* Расстояние между иконкой SVG и текстовой подписью */
+            transition: opacity 0.3s ease-in-out;
+        }
+
+        .cart-element.hidden {
+            opacity: 0;
+            visibility: hidden;
+            position: absolute;
+        }
+
+        /* Цвета тележки в зависимости от логики ПЛК */
+        .cart-body {
+            fill: #555;
+            transition: fill 0.3s;
+        }
+
+        .cart-wheel {
+            fill: #333;
+        }
+
+        .cart-element.warning .cart-body {
+            fill: #ff9800;
+        }
+
+        /* Оранжевый (приехала одна) */
+        .cart-element.danger .cart-body {
+            fill: #f44336;
+        }
+
+        /* Красный (обе сразу) */
+
+        /* Текстовая подпись справа от тележки */
+        .cart-label {
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 4px 8px;
+            border-radius: 4px;
+            white-space: nowrap;
+
+            /* ИСПРАВЛЕНИЕ: центрируем многострочный текст внутри плашки */
+            text-align: center;
+        }
+
+        /* === СТИЛИ ДЛЯ НОВЫХ ОСТАНОВОВ === */
+        .stops-visual-container {
+            display: flex;
+            flex-direction: row;
+            gap: 40px;
+            align-items: flex-end;
+            margin-bottom: 10px;
+            padding: 0 20px;
+            z-index: 2;
+        }
+
+        .stop-unit {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+            background: #2d2d2d;
+            border: 1px solid #444;
+            padding: 10px;
+            border-radius: 6px;
+        }
+
+        .stop-title {
+            font-size: 12px;
+            color: #9cdcfe;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        /* Состояния штока (по умолчанию он красный - закрыт) */
+        .stop-rod.moving {
+            height: 30px;
+            background: #ff9800;
+            box-shadow: 0 0 10px rgba(255, 152, 0, 0.7);
+            animation: pulseMove 1s infinite;
+        }
+
+        @keyframes pulseMove {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        /* Команды (Y) */
+        .stop-commands {
+            display: flex;
+            gap: 6px;
+            margin-top: 5px;
+        }
+
+        .cmd-badge {
+            font-size: 9px;
+            padding: 3px 6px;
+            background: #333;
+            color: #666;
+            border-radius: 3px;
+            border: 1px solid #444;
+            text-align: center;
+        }
+
+        .cmd-badge.active {
+            background: #2196f3;
+            color: #fff;
+            font-weight: bold;
+            border-color: #2196f3;
+            box-shadow: 0 0 5px rgba(33, 150, 243, 0.5);
+        }
     </style>
 </head>
 
@@ -856,46 +1054,96 @@
                 <!-- Дорожка цепи -->
                 <div class="chain-track" id="chainTrack"></div>
 
-                <!-- Зона 1: Начало / Датчики наличия -->
-                <div class="conveyor-zone">
-                    <div class="truck" id="truckStart">
-                        <div class="truck-body">ВХОД<br>Тележка</div>
-                        <div class="sensor-indicator" id="sens_start">S_Start</div>
+                <!-- Компактный вертикальный блок останова (будет прижат влево) -->
+                <div class="stop-unit">
+
+                    <!-- Верхняя группа: Задние датчики -->
+                    <div class="sensor-row">
+                        <div id="x6">X6: -</div>
+                        <div id="x7">X7: -</div>
                     </div>
-                    <div class="zone-label">Начало пути</div>
+
+                    <!-- Средняя группа: Зона отрисовки тележки и статуса -->
+                    <div class="cart-visual-box">
+                        <div id="cartVisual" class="cart-element hidden">
+                            <!-- SVG-иконка тележки -->
+                            <svg viewBox="0 0 100 60" width="70" height="42">
+                                <rect x="10" y="10" width="80" height="30" rx="5" class="cart-body" />
+                                <circle cx="25" cy="48" r="8" class="cart-wheel" />
+                                <circle cx="75" cy="48" r="8" class="cart-wheel" />
+                            </svg>
+                            <div id="cartLabel" class="cart-label"></div>
+                        </div>
+
+                        <!-- Статус, когда на останове никого нет -->
+                        <div id="stoika">✅ Останов свободен</div>
+                    </div>
+
+                    <!-- Нижняя группа: Передние датчики -->
+                    <div class="sensor-row">
+                        <div id="x14">X14: -</div>
+                        <div id="x15">X15: -</div>
+                    </div>
+
                 </div>
 
-                <!-- Зона 2: Останов (Шток) -->
-                <div class="conveyor-zone stop-zone">
-                    <div class="stop-gate-container">
-                        <div class="stop-rod" id="stopRod"></div>
-                        <div class="stop-base">ОСТАНОВ</div>
+                <!-- === НОВЫЙ БЛОК: Визуализация остановов 1 и 2 === -->
+                <div class="stops-visual-container">
+                    <!-- Останов 1 -->
+                    <div class="stop-unit">
+                        <div class="stop-title">Останов 1</div>
+                        <div class="stop-gate-container">
+                            <div class="stop-rod" id="stop1Rod"></div>
+                            <div class="stop-base">ШТАНГА 1</div>
+                        </div>
+                        <div class="stop-sensors">
+                            <div class="sensor-badge" id="ind_X_8">Открыт (X10)</div>
+                            <div class="sensor-badge" id="ind_X_9">Закрыт (X11)</div>
+                        </div>
+                        <div class="stop-commands">
+                            <div class="cmd-badge" id="ind_Y_0">Y0: Открыть</div>
+                            <div class="cmd-badge" id="ind_Y_1">Y1: Закрыть</div>
+                        </div>
                     </div>
-                    <div class="stop-sensors">
-                        <div class="sensor-badge" id="sens_stop_open">Открыт (X10/12)</div>
-                        <div class="sensor-badge" id="sens_stop_close">Закрыт (X16/17)</div>
+
+                    <!-- Останов 2 -->
+                    <div class="stop-unit">
+                        <div class="stop-title">Останов 2</div>
+                        <div class="stop-gate-container">
+                            <div class="stop-rod" id="stop2Rod"></div>
+                            <div class="stop-base">ШТАНГА 2</div>
+                        </div>
+                        <div class="stop-sensors">
+                            <div class="sensor-badge" id="ind_X_10">Открыт (X12)</div>
+                            <div class="sensor-badge" id="ind_X_11">Закрыт (X13)</div>
+                        </div>
+                        <div class="stop-commands">
+                            <div class="cmd-badge" id="ind_Y_2">Y2: Открыть</div>
+                            <div class="cmd-badge" id="ind_Y_3">Y3: Закрыть</div>
+                        </div>
                     </div>
-                    <div class="zone-label" id="stopLabel">Останов 1</div>
+
+                    <!-- НОВОЕ: Контроль закрытия (BQ35 / BQ36) -->
+                    <div class="stop-unit" style="border-color: #ff9800;">
+                        <div class="stop-title" style="color: #ff9800;">Контроль БВК<br>закрытия остан.</div>
+                        <div class="stop-sensors" style="flex-direction: column; gap: 6px; margin-top: 15px;">
+                            <div class="sensor-badge" id="ind_X_14">X16: BQ35 Закрытие</div>
+                            <div class="sensor-badge" id="ind_X_15">X17: BQ36 Закрытие (дубль)</div>
+                        </div>
+                    </div>
                 </div>
 
-                <!-- Зона 3: Передняя тележка -->
-                <div class="conveyor-zone">
-                    <div class="truck" id="truckFront">
-                        <div class="truck-body">ПЕРЕДНЯЯ<br>Тележка</div>
-                        <div class="sensor-indicator" id="sens_front">S_Front (X14/15)</div>
-                    </div>
-                    <div class="zone-label">Позиция 1</div>
-                </div>
-
-                <!-- Зона 4: Задняя тележка -->
-                <div class="conveyor-zone">
-                    <div class="truck" id="truckRear">
-                        <div class="truck-body">ЗАДНЯЯ<br>Тележка</div>
-                        <div class="sensor-indicator" id="sens_rear">S_Rear (X6/7)</div>
-                    </div>
-                    <div class="zone-label">Позиция 2 (База)</div>
+                <!-- === НОВЫЙ БЛОК: Цепь и звенья (заменил старый x22) === -->
+                <div class="conveyor-zone cep"
+                    style="align-items: center; gap: 5px; border: none; background: none; z-index: 2;">
+                    <div id="x22"
+                        style="background: #2d2d2d; border: 2px solid #555; border-radius: 6px; padding: 10px 15px; text-align: center; font-weight: bold; color: #fff; min-width: 120px;">
+                        X22</div>
+                    <div class="sensor-badge" id="ind_X_20">X24: Конец звена</div>
+                    <div class="sensor-badge" id="ind_X_21">X25: Начало звена</div>
                 </div>
             </div>
+
 
             <!-- Поиск по времени и Плеер (ваш оригинальный код) -->
             <div style="display: flex; gap: 10px; margin-bottom: 15px; align-items: center;">
@@ -987,36 +1235,192 @@
         // ==================== КОНФИГУРАЦИЯ И ДАННЫЕ ====================
         const signalNames = {
             X: {
-                0: 'X0 Резерв', 1: 'X1 Режим работы Выбран Контроллер/Реле', 2: 'X2 Резерв', 3: 'X3 Резерв',
-                4: 'X4 BQ21 набор шага и баз', 5: 'X5 BQ22 набор шага и баз', 6: 'X6 BQ37 Задняя тележка перед остановом',
-                7: 'X7 BQ38 Задняя тележка перед остановом (дубль)', 8: 'X10 BQ15 открыт останов 1', 9: 'X11 BQ16 закрыт останов 1',
-                10: 'X12 BQ17 открыт останов 2', 11: 'X13 BQ18 закрыт останов 2', 12: 'X14 BQ9 передняя тележка перед остановом',
-                13: 'X15 BQ10 передняя тележка перед остановом (дубль)', 14: 'X16 BQ35 закрытие останова', 15: 'X17 BQ36 закрытие останова',
-                16: 'X20 Ручной режим останов ОТКРЫТЬ', 17: 'X21 Ручной режим останов ЗАКРЫТЬ', 18: 'X22 ЦЕПЬ',
-                20: 'X24 NEW_BQ21 датчик конца звена', 21: 'X25 NEW_BQ22 датчик начала звена'
+                0: 'X0	    Резерв',
+                1: 'X1	    Режим работы Выбран Контроллер/Реле',
+                2: 'X2	    Резерв',
+                3: 'X3	    Резерв',
+                4: 'X4	    BQ21 набор шага и баз ',
+                5: 'X5	    BQ22 набор шага и баз ',
+                6: 'X6	    BQ37 Задняя тележка перед остановом ',
+                7: 'X7	    BQ38 Задняя тележка перед остановом ',
+                8: 'X10	    BQ15 открыт останов 1',
+                9: 'X11	    BQ16 закрыт останов 1',
+                10: 'X12	BQ17 открыт останов 2',
+                11: 'X13	BQ18 закрыт останов 2',
+                12: 'X14	BQ9 передняя тележка перед остановом',
+                13: 'X15	BQ10 передняя тележка перед остановом',
+                14: 'X16	BQ35 закрытие останова',
+                15: 'X17	BQ36 закрытие останова ',
+                16: 'X20	Ручной режим останов ОТКРЫТЬ',
+                17: 'X21	Ручной режим останов ЗАКРЫТЬ',
+                18: 'X22	ЦЕПЬ',
+                19: 'X23	Резерв',
+                20: 'X24	NEW_BQ21 датчик конца звена',
+                21: 'X25	NEW_BQ22 датчик начала звена',
+                22: 'X26	Резерв',
+                23: 'X27	Резерв',
+                24: 'X30	останов ПОЗ-1 Закладка',
+                25: 'X31	останов ПОЗ-3 Мост',
+                26: 'X32	останов ПОЗ-5 Кардан',
+                27: 'X33	останов ПОЗ-7 Переворот',
+                28: 'X34	останов ПОЗ-10 Двигатель',
+                29: 'X35	останов ПОЗ-14 Радиатор',
+                30: 'X36	останов Натяжитель цепи (подвал)',
+                31: 'X37	останов ПОЗ-26 Кабина',
+                32: 'X40	останов ПОЗ-29 Надрамник',
+                33: 'X41	останов ПОЗ-23 Заправка',
+                34: 'X42	останов ПОЗ-32 Спуск'
             },
             Y: {
-                0: 'Y0 Шток останова 1: Открыть', 1: 'Y1 Шток останова 1: Закрыть',
-                2: 'Y2 Шток останова 2: Открыть', 3: 'Y3 Шток останова 2: Закрыть', 5: 'Y5 Сигнал АВАРИИ из КОНТРОЛЛЕРА 0-активный'
+                0: 'Шток останова 1: Открыть',
+                1: 'Шток останова 1: Закрыть',
+                2: 'Шток останова 2: Открыть',
+                3: 'Шток останова 2: Закрыть',
+                5: 'Сигнал АВАРИИ из КОНТРОЛЛЕРА 0-активный'
             },
             C: {
-                101: 'С101 Энерго независимый счетчик 1 X4 или X5',
-                102: 'С102 Энерго независимый счетчик основной',
-                103: 'С103 Энерго независимый счетчик звеньев (X24 + X25)',
-                104: 'С104 Энерго независимый счетчик при движении в -',
-                110: 'С110 Энерго независимый счетчик машин'
+                30: 'время стоп закладка',
+                31: 'время стоп мост',
+                32: 'время стоп кардан',
+                33: 'время стоп переварот',
+                34: 'время стоп двигатель',
+                35: 'время стоп радиатор',
+                36: 'время стоп подвал',
+                37: 'время стоп кабина',
+                40: 'время стоп надрамник',
+                41: 'время стоп заправка',
+                42: 'время стоп спуск',
+                44: 'время стоп от контроллера',
+                45: 'время движения цепи',
+                46: 'время стоп цепи',
+                50: 'время работы контроллера',
+                101: 'энерго независимый счетчик 1 X4 или X5',
+                102: 'энерго независимый счетчик основной',
+                103: 'энерго независимый счетчик 2 X24 + X25',
+                104: 'энерго независимый счетчик при движении в -',
+                110: 'энерго независимый счетчик машин'
             },
             L: {
-                2: 'L2 Авария X24/X25', 13: 'L13 Ошибка!!! Нет передней тележки в останове (S9/S10)',
-                16: 'L16 Ошибка!!! Нет задней тележки в останове (S37/S38)',
-                43: 'L43 Авария датчиков S9,S10,S37,S38 Тележка в останове не определена!'
+                0: 'база  не выбрана',
+                1: 'сработка датчика при остановленной цепи',
+                2: 'Авария X24/X25',
+                3: 'Необходимо выбрать расстаяние между передними стойками',
+                4: 'Неопределенное состояние остановов',
+                11: 'сигналы S9 и S10 не равны',
+                12: 'сигналы S37 и S38 не равны',
+                13: 'Ошибка!!! Нет передней тележки в останове (S9/S10)',
+                14: 'Ручн. реж. Цепь STOP',
+                16: 'Ошибка!!! Нет задней тележки в останове (S37/S38)',
+                22: 'сигналы S21 и S22 не равны',
+                23: 'сигналы S35 и S36 не равны',
+                39: 'Предупреждение!!! Нет Задания!!! ',
+                41: 'Переключитесь на работу от останова 2 Останов 1 не исправен!!!',
+                42: 'Переключитесь на работу от останова 1 Останов 2 не исправен!!!',
+                43: 'Авария датчиков S9,S10,S37,S38    Тележка в останове не определена!',
+                44: 'S35 неисправен',
+                45: 'S36 неисправен',
+                50: 'Несоответствие  y0=1 s15=0',
+                51: 'Несоответствие  y0=0 s15=1',
+                52: 'Несоответствие  y1=1 s15=0',
+                53: 'Несоответствие  y1=0 s15=1',
+                54: 'Несоответствие  y2=1 s15=0',
+                55: 'Несоответствие  y2=0 s15=1',
+                56: 'Несоответствие  y3=1 s15=0',
+                57: 'Несоответствие  y3=0 s15=1',
             },
             M: {
-                109: 'M109 S37 задняя тележка в останове', 110: 'M110 S38 задняя тележка в останове',
-                115: 'M115 S15 останов 1 открыт', 116: 'M116 S16 останов 1 закрыт',
-                117: 'M117 S17 останов 2 открыт', 118: 'M118 S18 останов 2 закрыт',
-                137: 'M137 S9 передняя тележка в останове', 138: 'M138 S10 передняя тележка в останове',
-                519: 'M519 Выбранный останов 1-1 0-2'
+                0: 'ЗАНЕСЕНИЯ С АРХИВА В СТРОЧКУ GTSOFT',
+                1: 'для сброса m99 и m101',
+                2: 'кнопка установить "Да" на пульту',
+                3: 'очистка данных задания',
+                4: 'цепь не движется',
+                5: 'Кнопка на пульту откл/вкл слежение(была)',
+                6: 'кнопка на пульту квитирование (игнарирование) датчика закрытия',
+                7: 'Сработает после ввода данных на понели d9',
+                8: 'Сработает после ввода данных на понели d3030',
+                9: 'тригер для экрана ЛОГ',
+                10: 'откат сброс',
+                11: 'Кнопка на пульту выбор остановов',
+                12: 'Кнопка 1-Ручной 0-Авто',
+                13: 'для истории ',
+                14: 'кнопка на экране "Изменить число звеньев"',
+                15: 'обновить данные на экране',
+                16: 'сообщение на экран "задняя база сформирована"',
+                17: 'для пуска цепи из ручного режима',
+                18: 'для очистки сообщения цепь остановлена',
+                19: 'выбран останов в ручном режиме 1/2',
+                20: 'У0 в автомате',
+                21: 'У1 в автомате',
+                22: 'У2 в автомате',
+                23: 'У3 в автомате',
+                24: 'для скрытия и отоброжения кнопки"СЧИТАТЬ С АРХИВА"',
+                25: 'У0 в ручном',
+                26: 'У1 в ручном',
+                27: 'У2 в ручном',
+                28: 'У3 в ручном',
+                29: '0-надпись ПЕРЕДНЯЯ 1-надпись ЗАДНЯЯ 4 позиция',
+                30: '1-отобразить 0-крыть 4 позиция',
+                31: '0-надпись ПЕРЕДНЯЯ 1-надпись ЗАДНЯЯ 3 позиция',
+                32: '1-отобразить 0-крыть 3 позиция',
+                33: '0-надпись ПЕРЕДНЯЯ 1-надпись ЗАДНЯЯ 2 позиция',
+                34: '1-отобразить 0-крыть 2 позиция',
+                35: '0-надпись ПЕРЕДНЯЯ 1-надпись ЗАДНЯЯ 1 позиция',
+                36: '1-отобразить 0-крыть 1 позиция',
+                37: 'Движение тележки 4 задняя',
+                38: 'Движение тележки 3 задняя',
+                39: 'Движение тележки 2',
+                40: 'ГДЕ-ТО АВАРИЯ',
+                41: 'Движение тележки 4 передняя',
+                42: 'Движение тележки 3 передняя',
+                44: 'стереть d700',
+                45: 'стоп/пуск узла контроля остановов',
+                46: 'стоп/пуск узла счета баз',
+                50: 'Не соответствие выход = вход в течении 2 сек',
+                51: 'Исключить зацикливание',
+                52: 'M52=0 Сoобщение Необходимо выбрать расстаяние между передними стойками',
+                53: 'M53:=1; надписи 36 и 41 моргают',
+                97: 'УДАЛЕНИЕ СТРОЧКИ СО СМЕЩЕНИЕМ экран рецептов',
+                99: 'начало передняя база',
+                100: 'сдвиг',
+                101: 'начало задняя база',
+                102: 'Сместить задание из списка на 1 позицию',
+                105: 'ОТ ЗАЦИКЛИВАНИЯ при записи архива не cd карту',
+                109: 'S37 задняя тележка в останове',
+                110: 'S38 задняя тележка в останове',
+                111: 'Тригер для формирования истории баз',
+                115: 'S15 останов 1 открыт',
+                116: 'S16 останов 1 закрыт',
+                117: 'S17 останов 2 открыт',
+                118: 'S18 останов 2 закрыт',
+                121: 'S21 счетчик звеньев',
+                122: 'S22 счетчик звеньев',
+                123: 'Счетчик с учетом дребезга',
+                124: 'Счетчик с учетом дребезга',
+                125: 'Счетчик с учетом дребезга',
+                135: 'S35 БВК на закрытие останова',
+                136: 'S36 БВК на закрытие останова',
+                137: 'S9 пернедняя тележка в останове',
+                138: 'S10 пернедняя тележка в останове',
+                199: 'Кнопка сброса ошибок на пульту',
+                200: 'Неверное положение останова',
+                201: 'Нет передней тележки',
+                202: 'число звеньев 33 а передней базы нет',
+                203: 'число звеньев = задней базе а ее нет',
+                204: 'выключить цепь',
+                205: 'нет задней тележки',
+                300: 'переключатель выбор схемы контр/реле',
+                401: 'добавить к модели данные базы',
+                402: 'ЗАНЕСЕНИЯ С АРХИВА В СТРОЧКУ задания экрае рецепты',
+                403: 'Если =1 то данные закладки из вне пересчет длинны и название базы',
+                500: 'память Y0 открыть',
+                501: 'память Y1 закрыть',
+                502: 'память Y2 открыть',
+                503: 'память Y3 закрыть',
+                519: 'Выбранный останов 1-1 0-2',
+                524: 'Выбранный датчик щетчика звеньев с панели ',
+                525: 'Выбранный датчик задняя тележка с панели ',
+                526: 'Выбранный датчик передняя тележка с панели ',
+                527: 'Выбранный датчик на закрытие останова с панели',
             }
         };
 
@@ -1206,6 +1610,17 @@
             }
         }
 
+        // Быстрое циклическое сравнение массивов (быстрее JSON.stringify)
+        function arraysEqual(arr1, arr2) {
+            if (arr1 === arr2) return true;
+            if (!arr1 || !arr2) return false;
+            if (arr1.length !== arr2.length) return false;
+            for (let i = 0; i < arr1.length; i++) {
+                if (arr1[i] !== arr2[i]) return false;
+            }
+            return true;
+        }
+
         function downsampleData(data) {
             if (data.length <= 2000) return data;
             const result = [];
@@ -1222,10 +1637,10 @@
 
                 let discreteChanged = false;
                 if (lastKeptItem) {
-                    if (JSON.stringify(current.X) !== JSON.stringify(lastKeptItem.X)) discreteChanged = true;
-                    else if (JSON.stringify(current.Y) !== JSON.stringify(lastKeptItem.Y)) discreteChanged = true;
-                    else if (JSON.stringify(current.M) !== JSON.stringify(lastKeptItem.M)) discreteChanged = true;
-                    else if (JSON.stringify(current.L) !== JSON.stringify(lastKeptItem.L)) discreteChanged = true;
+                    if (!arraysEqual(current.X, lastKeptItem.X)) discreteChanged = true;
+                    else if (!arraysEqual(current.Y, lastKeptItem.Y)) discreteChanged = true;
+                    else if (!arraysEqual(current.M, lastKeptItem.M)) discreteChanged = true;
+                    else if (!arraysEqual(current.L, lastKeptItem.L)) discreteChanged = true;
                 }
                 if (discreteChanged) { result.push(current); lastKeptItem = current; }
             }
@@ -1407,105 +1822,156 @@
             });
 
             // 3. === ВИЗУАЛИЗАЦИЯ КОНВЕЙЕРА ===
-            const chainTrack = document.getElementById('chainTrack');
-            const stopRod = document.getElementById('stopRod');
-            const truckFront = document.getElementById('truckFront');
-            const truckRear = document.getElementById('truckRear');
-            const truckStart = document.getElementById('truckStart');
-            const sensFront = document.getElementById('sens_front');
-            const sensRear = document.getElementById('sens_rear');
-            const sensStart = document.getElementById('sens_start');
-            const sensStopOpen = document.getElementById('sens_stop_open');
-            const sensStopClose = document.getElementById('sens_stop_close');
-            const stopLabel = document.getElementById('stopLabel');
+            const cep_x22 = document.getElementById('x22');
+            const stoika = document.getElementById('stoika');
+            const _x6 = document.getElementById('x6');
+            const _x7 = document.getElementById('x7');
+            const _x14 = document.getElementById('x14');
+            const _x15 = document.getElementById('x15');
             const valActiveStop = document.getElementById('val_active_stop');
             const valD714 = document.getElementById('val_d714');
             const valLinks = document.getElementById('val_links');
             const valmashin = document.getElementById('val_mashin');
             const vald4000 = document.getElementById('val_d4000');
             const valPollMs = document.getElementById('val_poll_ms');
-            const alarmIndicator = document.getElementById('alarmIndicator');
 
+            // Новые элементы для тележки
+            const cartVisual = document.getElementById('cartVisual');
+            const cartLabel = document.getElementById('cartLabel');
 
+            // Выбранный останов (M519: 1=Останов 1, 0=Останов 2)
+            const isStop1 = data.M && data.M[519];
+            if (valActiveStop) valActiveStop.textContent = isStop1 ? 'Останов 1' : 'Останов 2';
+
+            const d714Val = data.D714 !== undefined ? data.D714 : 0;
+            if (valD714) valD714.textContent = d714Val;
+
+            const d74000Val = data.D4000 !== undefined ? data.D4000 : 0;
+            if (vald4000) vald4000.textContent = d74000Val;
+
+            const linksVal = data.C && data.C[73] !== undefined ? data.C[73] : 0; // C103 = индекс 73 (103-30)
+            if (valLinks) valLinks.textContent = linksVal;
+
+            const linksMash = data.C && data.C[80] !== undefined ? data.C[80] : 0; // C110 = индекс 80 (110-30)
+            if (valmashin) valmashin.textContent = linksMash;
+
+            // Время опроса ПЛК (мс)
+            const pollMsVal = data.poll_duration !== undefined ? data.poll_duration : 0;
+            if (valPollMs) valPollMs.textContent = pollMsVal;
+
+            // Цепь (X22) — Сначала объявляем переменную, затем используем!
+            const statusText = data.X && data.X[18] ? "ВЫКЛ" : "ВКЛ";
+            if (cep_x22) cep_x22.textContent = `X22 (ЦЕПЬ): ${statusText}`;
+
+            const chainTrack = document.getElementById('chainTrack');
             if (chainTrack) {
-                // Цепь (X22)
-                if (data.X && data.X[22]) {
-                    chainTrack.classList.add('moving');
-                } else {
+                if (data.X && data.X[18]) {
                     chainTrack.classList.remove('moving');
-                }
-
-                // Выбранный останов (M519: 1=Останов 1, 0=Останов 2)
-                const isStop1 = data.M && data.M[519];
-                valActiveStop.textContent = isStop1 ? 'Останов 1' : 'Останов 2';
-                stopLabel.textContent = isStop1 ? 'Останов 1' : 'Останов 2';
-
-                // Состояние штока останова
-                let isOpen = false;
-                if (isStop1) {
-                    isOpen = (data.X && data.X[10]) || (data.M && data.M[115]);
-                    if (data.X && data.X[10]) sensStopOpen.classList.add('active'); else sensStopOpen.classList.remove('active');
-                    if (data.X && data.X[16]) sensStopClose.classList.add('active'); else sensStopClose.classList.remove('active'); // X16/X17 закрытие
                 } else {
-                    isOpen = (data.X && data.X[12]) || (data.M && data.M[117]);
-                    if (data.X && data.X[12]) sensStopOpen.classList.add('active'); else sensStopOpen.classList.remove('active');
-                    if (data.X && data.X[17]) sensStopClose.classList.add('active'); else sensStopClose.classList.remove('active');
-                }
-
-                if (isOpen) {
-                    stopRod.classList.add('open');
-                } else {
-                    stopRod.classList.remove('open');
-                }
-
-                // Передняя тележка (X14/X15 или M137/M138)
-                const hasFront = (data.X && (data.X[14] || data.X[15])) || (data.M && (data.M[137] || data.M[138]));
-                if (hasFront) {
-                    truckFront.classList.add('active');
-                    sensFront.classList.add('active');
-                    sensStart.classList.add('active'); // Считаем, что перед остановом = на входе в зону
-                } else {
-                    truckFront.classList.remove('active');
-                    sensFront.classList.remove('active');
-                    sensStart.classList.remove('active');
-                }
-
-                // Задняя тележка (X6/X7 или M109/M110)
-                const hasRear = (data.X && (data.X[6] || data.X[7])) || (data.M && (data.M[109] || data.M[110]));
-                if (hasRear) {
-                    truckRear.classList.add('active');
-                    sensRear.classList.add('active');
-                } else {
-                    truckRear.classList.remove('active');
-                    sensRear.classList.remove('active');
-                }
-
-                // Данные 
-                const d714Val = data.D714 !== undefined ? data.D714 : 0;
-                valD714.textContent = d714Val;
-
-                const d74000Val = data.D4000 !== undefined ? data.D4000 : 0;
-                vald4000.textContent = d74000Val;
-
-                const linksVal = data.C && data.C[73] !== undefined ? data.C[73] : 0; // C103 = индекс 73 (103-30)
-                valLinks.textContent = linksVal;
-
-                const linksMash = data.C && data.C[80] !== undefined ? data.C[80] : 0; // C110 = индекс 80 (110-30)
-                valmashin.textContent = linksMash;
-
-                // Время опроса ПЛК (мс) — записывается в лог из poll_duration_ms
-                const pollMsVal = data.poll_duration !== undefined ? data.poll_duration : 0;
-                if (valPollMs) valPollMs.textContent = pollMsVal;
-
-                // Аварии (L2, L13, L16, L43)
-
-                const hasAlarm = data.L && (data.L[2] || data.L[13] || data.L[16] || data.L[43]);
-                if (hasAlarm) {
-                    alarmIndicator.style.display = 'flex';
-                } else {
-                    alarmIndicator.style.display = 'none';
+                    chainTrack.classList.add('moving');
                 }
             }
+
+            // Считываем значения датчиков
+            const X6 = data.X ? data.X[6] : undefined;
+            const X7 = data.X ? data.X[7] : undefined;
+            const X14 = data.X ? data.X[12] : undefined; // 12: X14
+            const X15 = data.X ? data.X[13] : undefined; // 13: X15
+
+            // Отображаем состояние каждого датчика
+            if (_x6) _x6.textContent = `X6: ${X6 ? '1 (НЕ АКТИВЕН)' : '0 (АКТИВЕН)'}`;
+            if (_x7) _x7.textContent = `X7: ${X7 ? '1 (НЕ АКТИВЕН)' : '0 (АКТИВЕН)'}`;
+            if (_x14) _x14.textContent = `X14: ${X14 ? '1 (НЕ АКТИВЕН)' : '0 (АКТИВЕН)'}`;
+            if (_x15) _x15.textContent = `X15: ${X15 ? '1 (НЕ АКТИВЕН)' : '0 (АКТИВЕН)'}`;
+
+            // Проверяем приезд тележек (активный уровень = false)
+            const isRearArrived = X6 !== undefined && X7 !== undefined && (!X6 || !X7);
+            const isFrontArrived = X14 !== undefined && X15 !== undefined && (!X14 || !X15);
+
+            // Очищаем старые классы позиционирования тележки перед обновлением
+            if (cartVisual) cartVisual.className = 'cart-element';
+
+            // Логика управления графической тележкой и текстом 
+            if (cartVisual && stoika && cartLabel) {
+                // Сбрасываем цвета 
+                cartVisual.className = 'cart-element';
+
+                if (isFrontArrived && isRearArrived) {
+                    // Ситуация: Обе тележки на месте (авария) 
+                    stoika.style.display = 'none';
+                    cartVisual.classList.remove('hidden');
+                    cartVisual.classList.add('danger');
+                    cartLabel.innerHTML = `⚠ ОБЕ ТЕЛЕЖКИ!`;
+                } else if (isFrontArrived || isRearArrived) {
+                    // Ситуация: Приехала одна из тележек 
+                    stoika.style.display = 'none';
+                    cartVisual.classList.remove('hidden');
+                    cartVisual.classList.add('warning');
+
+                    if (isFrontArrived) {
+                        cartLabel.innerHTML = `⬅ ПЕРЕДНЯЯ ТЕЛЕЖКА<br>У АСТАНОВА`;
+                    } else {
+                        cartLabel.innerHTML = `ЗАДНЯЯ ТЕЛЕЖКА<br>У АСТАНОВА`;
+                    }
+                } else {
+                    // Ситуация: Останов полностью чист 
+                    cartVisual.classList.add('hidden');
+                    stoika.style.display = 'block';
+                    stoika.innerHTML = `<span style="color: #4caf50; font-weight: bold;">✅ Останов свободен</span>`;
+                }
+            }
+            // === ВИЗУАЛИЗАЦИЯ ОСТАНОВОВ 1 И 2 + ДОП. ДАТЧИКИ ===
+            // Читаем сигналы концевиков (X)
+            const X10_open = data.X ? data.X[8] : false;
+            const X11_closed = data.X ? data.X[9] : false;
+            const X12_open = data.X ? data.X[10] : false;
+            const X13_closed = data.X ? data.X[11] : false;
+
+            // НОВОЕ: BQ35 и BQ36
+            const X16_bq35 = data.X ? data.X[14] : false;
+            const X17_bq36 = data.X ? data.X[15] : false;
+
+            // НОВОЕ: Датчики звеньев
+            const X24_end = data.X ? data.X[20] : false;
+            const X25_start = data.X ? data.X[21] : false;
+
+            // Читаем команды управления (Y)
+            const Y0_cmd_open = data.Y ? data.Y[0] : false;
+            const Y1_cmd_close = data.Y ? data.Y[1] : false;
+            const Y2_cmd_open = data.Y ? data.Y[2] : false;
+            const Y3_cmd_close = data.Y ? data.Y[3] : false;
+
+            // --- Останов 1 ---
+            const stop1Rod = document.getElementById('stop1Rod');
+            if (stop1Rod) {
+                stop1Rod.className = 'stop-rod';
+                if (X10_open) stop1Rod.classList.add('open');
+                else if (!X10_open && !X11_closed) stop1Rod.classList.add('moving');
+            }
+            document.getElementById('ind_X_8')?.classList.toggle('active', X10_open);
+            document.getElementById('ind_X_9')?.classList.toggle('active', X11_closed);
+            document.getElementById('ind_Y_0')?.classList.toggle('active', Y0_cmd_open);
+            document.getElementById('ind_Y_1')?.classList.toggle('active', Y1_cmd_close);
+
+            // --- Останов 2 ---
+            const stop2Rod = document.getElementById('stop2Rod');
+            if (stop2Rod) {
+                stop2Rod.className = 'stop-rod';
+                if (X12_open) stop2Rod.classList.add('open');
+                else if (!X12_open && !X13_closed) stop2Rod.classList.add('moving');
+            }
+            document.getElementById('ind_X_10')?.classList.toggle('active', X12_open);
+            document.getElementById('ind_X_11')?.classList.toggle('active', X13_closed);
+            document.getElementById('ind_Y_2')?.classList.toggle('active', Y2_cmd_open);
+            document.getElementById('ind_Y_3')?.classList.toggle('active', Y3_cmd_close);
+
+            // --- НОВОЕ: BQ35 / BQ36 (Контроль закрытия) ---
+            document.getElementById('ind_X_14')?.classList.toggle('active', X16_bq35);
+            document.getElementById('ind_X_15')?.classList.toggle('active', X17_bq36);
+
+            // --- НОВОЕ: Датчики звеньев цепи ---
+            document.getElementById('ind_X_20')?.classList.toggle('active', X24_end);
+            document.getElementById('ind_X_21')?.classList.toggle('active', X25_start);
 
             // Обновляем время и прогресс
             if (data.ts) {
