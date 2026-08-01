@@ -920,6 +920,91 @@
             border-color: #2196f3;
             box-shadow: 0 0 5px rgba(33, 150, 243, 0.5);
         }
+
+        /* === ПРОГРЕСС-БАР ЗАГРУЗКИ === */
+        .progress-container {
+            width: 280px;
+            height: 6px;
+            background-color: #3c3c3c;
+            border-radius: 3px;
+            margin-top: 20px;
+            overflow: hidden;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+        }
+
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--btn-primary) 0%, #00e5ff 100%);
+            border-radius: 3px;
+            transition: width 0.3s ease-out;
+            box-shadow: 0 0 10px rgba(0, 229, 255, 0.6);
+            position: relative;
+        }
+
+        /* Блик для эффекта "живого" движения */
+        .progress-bar::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background: linear-gradient(90deg,
+                    rgba(255, 255, 255, 0) 0%,
+                    rgba(255, 255, 255, 0.3) 50%,
+                    rgba(255, 255, 255, 0) 100%);
+            transform: translateX(-100%);
+            animation: shimmer 1.5s infinite;
+        }
+
+        @keyframes shimmer {
+            100% {
+                transform: translateX(100%);
+            }
+        }
+
+        /* === БЛОК АКТИВНЫХ СТОПОВ ПО УЧАСТКАМ === */
+        .stops-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #3d2e1a;
+            border: 1px solid #ff9800;
+            padding: 8px 15px;
+            border-radius: 6px;
+            color: #ffb74d;
+            font-weight: bold;
+            font-size: 13px;
+            animation: stopsPulse 2s infinite;
+        }
+
+        @keyframes stopsPulse {
+
+            0%,
+            100% {
+                box-shadow: 0 0 5px rgba(255, 152, 0, 0.3);
+            }
+
+            50% {
+                box-shadow: 0 0 12px rgba(255, 152, 0, 0.7);
+            }
+        }
+
+        .stops-icon {
+            font-size: 20px;
+        }
+
+        .stop-tag {
+            background: rgba(255, 152, 0, 0.2);
+            border: 1px solid #ff9800;
+            color: #fff;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
     </style>
 </head>
 
@@ -928,7 +1013,10 @@
     <!-- Индикатор загрузки -->
     <div class="loader-overlay" id="loader">
         <div class="spinner"></div>
-        <div class="loader-text">Загрузка данных с ПЛК...</div>
+        <div class="loader-text" id="loaderText">Загрузка данных с ПЛК...</div>
+        <div class="progress-container">
+            <div class="progress-bar" id="loaderProgressBar"></div>
+        </div>
     </div>
 
     <div class="container">
@@ -1050,6 +1138,21 @@
                     <div id="activeAlarmsList"
                         style="display: flex; flex-direction: column; gap: 4px; text-align: left;">
                         <!-- Сюда JavaScript будет динамически добавлять список активных аварий L -->
+                    </div>
+                </div>
+                <div id="alarmIndicator" class="alarm-group" style="display: none;">
+                    <span class="alarm-icon">⚠️</span>
+                    <div id="activeAlarmsList"
+                        style="display: flex; flex-direction: column; gap: 4px; text-align: left;">
+                        <!-- Сюда JavaScript будет динамически добавлять список активных аварий L -->
+                    </div>
+                </div>
+
+                <!-- НОВОЕ: Блок активных технологических стопов по участкам -->
+                <div id="activeStopsIndicator" class="stops-group" style="display: none;">
+                    <span class="stops-icon">🛑</span>
+                    <div id="activeStopsList" style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
+                        <!-- Сюда JavaScript будет добавлять теги активных участков -->
                     </div>
                 </div>
             </div>
@@ -1583,41 +1686,82 @@
             await loadDataForDate(dateStr);
         }
 
-        // ==================== ЗАГРУЗКА И РАСПАКОВКА ДАННЫХ ====================
+        // ==================== ЗАГРУЗКА И РАСПАКОВКА ДАННЫХ (.jsonl.gz) ====================
         async function loadDataForDate(dateStr) {
             const loader = document.getElementById('loader');
+            const loaderText = document.getElementById('loaderText');
+            const progressBar = document.getElementById('loaderProgressBar');
+
             loader.classList.add('active');
-            loader.querySelector('.loader-text').textContent = 'Загрузка и распаковка архива...';
+            loaderText.textContent = 'Загрузка сжатого архива...';
+            progressBar.style.width = '0%';
+            progressBar.style.transition = 'none';
+
+            // Умная симуляция прогресса скачивания до 40%
+            let progress = 0;
+            const progressInterval = setInterval(() => {
+                progress += Math.random() * 8;
+                if (progress > 40) progress = 40;
+                progressBar.style.transition = 'width 0.3s ease-out';
+                progressBar.style.width = progress + '%';
+            }, 150);
 
             try {
-                // 1. Делаем запрос к Flask
+                // 1. Скачиваем как бинарный буфер
                 const response = await fetch(`/api/timeline_log?date=${dateStr}`);
                 if (!response.ok) throw new Error(`HTTP ошибка: ${response.status}`);
 
-                // Смотрим, какой тип контента прислал Flask (.gz архив или простой текст)
-                const contentType = response.headers.get('content-type');
+                const buffer = await response.arrayBuffer();
+
+                // 2. Распаковка GZIP через Pako
+                loaderText.textContent = 'Распаковка архива (Pako)...';
+                progressBar.style.width = '50%';
+
+                // Даем браузеру микросекунду на отрисовку текста перед тяжелой операцией
+                await new Promise(resolve => setTimeout(resolve, 10));
+
+                // pako.inflate возвращает строку, если передать { to: 'string' }
+                const jsonString = pako.inflate(new Uint8Array(buffer), { to: 'string' });
+
+                // 3. Парсинг JSONL (каждая строка - отдельный JSON объект)
+                loaderText.textContent = 'Парсинг JSONL строк...';
+                progressBar.style.width = '80%';
+
+                await new Promise(resolve => setTimeout(resolve, 10));
+
+                const lines = jsonString.split('\n');
                 let fullData = [];
 
-                if (contentType && contentType.includes('gzip')) {
-                    // КЛИЕНТСКАЯ РАСПАКОВКА: Читаем ответ как поток байт
-                    const buffer = await response.arrayBuffer();
-
-                    // Распаковываем байты в исходную JSONL-строку при помощи локального pako
-                    const textData = pako.ungzip(new Uint8Array(buffer), { to: 'string' });
-
-                    // Парсим полученный текст формата JSONL в массив объектов
-                    fullData = parseJsonl(textData);
-                } else {
-                    // Если это сегодняшний день (прилетел обычный JSON/JSONL)
-                    const textData = await response.text();
-                    fullData = parseJsonl(textData);
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    if (line) {
+                        try {
+                            fullData.push(JSON.parse(line));
+                        } catch (e) {
+                            console.warn("Ошибка парсинга строки", i, line);
+                        }
+                    }
+                    // Обновляем прогресс парсинга каждые 1000 строк для больших файлов
+                    if (i % 1000 === 0) {
+                        const parseProgress = 80 + Math.round((i / lines.length) * 15);
+                        progressBar.style.width = parseProgress + '%';
+                    }
                 }
 
-                // 2. Сохраняем ВСЕ 100% точек для идеальной синхронности плеера
-                rawData = fullData;
+                // 4. Прореживание данных (если их слишком много для графика)
+                loaderText.textContent = 'Построение графиков...';
+                progressBar.style.width = '95%';
 
-                // 3. Строим графики
+                if (fullData.length > 2000) {
+                    rawData = downsampleData(fullData);
+                } else {
+                    rawData = fullData;
+                }
+
                 renderCharts();
+
+                // Успех: 100%
+                progressBar.style.width = '100%';
 
             } catch (error) {
                 console.error("Ошибка загрузки или распаковки логов:", error);
@@ -1625,8 +1769,12 @@
                 rawData = [];
                 renderCharts();
             } finally {
-                // Гарантированно выключаем крутилку загрузки в конце
-                loader.classList.remove('active');
+                // Даем небольшую задержку, чтобы глаз успел заметить 100% перед скрытием
+                setTimeout(() => {
+                    clearInterval(progressInterval);
+                    loader.classList.remove('active');
+                    progressBar.style.width = '0%'; // Сброс для следующей загрузки
+                }, 400);
             }
         }
 
@@ -1953,7 +2101,46 @@
                 alarmIndicator.style.display = hasAlarm ? 'flex' : 'none';
             }
             // ==========================================
+            // ==========================================
+            // НОВОЕ: Активные технологические стопы по участкам (X30-X42)
+            // ==========================================
+            const sectionStops = {
+                24: 'ПОЗ-1 Закладка',
+                25: 'ПОЗ-3 Мост',
+                26: 'ПОЗ-5 Кардан',
+                27: 'ПОЗ-7 Переворот',
+                28: 'ПОЗ-10 Двигатель',
+                29: 'ПОЗ-14 Радиатор',
+                30: 'Натяжитель (подвал)',
+                31: 'ПОЗ-26 Кабина',
+                32: 'ПОЗ-29 Надрамник',
+                33: 'ПОЗ-23 Заправка',
+                34: 'ПОЗ-32 Спуск'
+            };
 
+            const activeStopsList = document.getElementById('activeStopsList');
+            const activeStopsIndicator = document.getElementById('activeStopsIndicator');
+
+            if (activeStopsList && activeStopsIndicator) {
+                activeStopsList.innerHTML = '';
+                let hasStop = false;
+
+                if (data.X) {
+                    Object.keys(sectionStops).forEach(idx => {
+                        const xIdx = parseInt(idx);
+                        if (data.X[xIdx]) {
+                            hasStop = true;
+                            const tag = document.createElement('div');
+                            tag.className = 'stop-tag';
+                            tag.textContent = `X${xIdx.toString(8).padStart(2, '0')}: ${sectionStops[idx]}`;
+                            activeStopsList.appendChild(tag);
+                        }
+                    });
+                }
+
+                activeStopsIndicator.style.display = hasStop ? 'flex' : 'none';
+            }
+            // ==========================================
             // Цепь (X22) — Сначала объявляем переменную, затем используем!
             const statusText = data.X && data.X[18] ? "ВЫКЛ" : "ВКЛ";
             if (cep_x22) cep_x22.textContent = `X22 (ЦЕПЬ): ${statusText}`;
