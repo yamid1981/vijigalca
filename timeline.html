@@ -10,6 +10,7 @@
     <script src="/static/js/chart.min.js"></script>
     <script src="/static/js/hammer.min.js"></script>
     <script src="/static/js/chartjs-plugin-zoom.min.js"></script>
+    <script src="/static/js/pako.min.js"></script>
 
     <style>
         :root {
@@ -849,6 +850,7 @@
         .stops-visual-container {
             display: flex;
             flex-direction: row;
+            justify-content: center;
             gap: 40px;
             align-items: flex-end;
             margin-bottom: 10px;
@@ -1045,7 +1047,10 @@
 
                 <div id="alarmIndicator" class="alarm-group" style="display: none;">
                     <span class="alarm-icon">⚠️</span>
-                    <span>ОШИБКА ДАТЧИКОВ / НЕТ ТЕЛЕЖКИ</span>
+                    <div id="activeAlarmsList"
+                        style="display: flex; flex-direction: column; gap: 4px; text-align: left;">
+                        <!-- Сюда JavaScript будет динамически добавлять список активных аварий L -->
+                    </div>
                 </div>
             </div>
 
@@ -1089,8 +1094,8 @@
 
                 <!-- === НОВЫЙ БЛОК: Визуализация остановов 1 и 2 === -->
                 <div class="stops-visual-container">
-                    <!-- Останов 1 -->
-                    <div class="stop-unit">
+                    <!-- Останов 1 (ДОБАВЛЕН id="stopUnit1") -->
+                    <div class="stop-unit" id="stopUnit1">
                         <div class="stop-title">Останов 1</div>
                         <div class="stop-gate-container">
                             <div class="stop-rod" id="stop1Rod"></div>
@@ -1106,8 +1111,8 @@
                         </div>
                     </div>
 
-                    <!-- Останов 2 -->
-                    <div class="stop-unit">
+                    <!-- Останов 2 (ДОБАВЛЕН id="stopUnit2") -->
+                    <div class="stop-unit" id="stopUnit2">
                         <div class="stop-title">Останов 2</div>
                         <div class="stop-gate-container">
                             <div class="stop-rod" id="stop2Rod"></div>
@@ -1125,7 +1130,7 @@
 
                     <!-- НОВОЕ: Контроль закрытия (BQ35 / BQ36) -->
                     <div class="stop-unit" style="border-color: #ff9800;">
-                        <div class="stop-title" style="color: #ff9800;">Контроль БВК<br>закрытия остан.</div>
+                        <div class="stop-title" style="color: #ff9800;">ДАТЧИКИ<br>ЗАКРЫТИЯ<br>ОСТАНОВА</div>
                         <div class="stop-sensors" style="flex-direction: column; gap: 6px; margin-top: 15px;">
                             <div class="sensor-badge" id="ind_X_14">X16: BQ35 Закрытие</div>
                             <div class="sensor-badge" id="ind_X_15">X17: BQ36 Закрытие (дубль)</div>
@@ -1578,37 +1583,75 @@
             await loadDataForDate(dateStr);
         }
 
-        // ==================== ЗАГРУЗКА ДАННЫХ ====================
+        // ==================== ЗАГРУЗКА И РАСПАКОВКА ДАННЫХ ====================
         async function loadDataForDate(dateStr) {
             const loader = document.getElementById('loader');
             loader.classList.add('active');
-            loader.querySelector('.loader-text').textContent = 'Загрузка и обработка данных...';
+            loader.querySelector('.loader-text').textContent = 'Загрузка и распаковка архива...';
 
             try {
+                // 1. Делаем запрос к Flask
                 const response = await fetch(`/api/timeline_log?date=${dateStr}`);
                 if (!response.ok) throw new Error(`HTTP ошибка: ${response.status}`);
-                const data = await response.json();
 
+                // Смотрим, какой тип контента прислал Flask (.gz архив или простой текст)
+                const contentType = response.headers.get('content-type');
                 let fullData = [];
-                if (data && data.events && Array.isArray(data.events)) fullData = data.events;
-                else if (Array.isArray(data)) fullData = data;
-                else fullData = [data];
 
-                if (fullData.length > 2000) {
-                    rawData = downsampleData(fullData);
+                if (contentType && contentType.includes('gzip')) {
+                    // КЛИЕНТСКАЯ РАСПАКОВКА: Читаем ответ как поток байт
+                    const buffer = await response.arrayBuffer();
+
+                    // Распаковываем байты в исходную JSONL-строку при помощи локального pako
+                    const textData = pako.ungzip(new Uint8Array(buffer), { to: 'string' });
+
+                    // Парсим полученный текст формата JSONL в массив объектов
+                    fullData = parseJsonl(textData);
                 } else {
-                    rawData = fullData;
+                    // Если это сегодняшний день (прилетел обычный JSON/JSONL)
+                    const textData = await response.text();
+                    fullData = parseJsonl(textData);
                 }
+
+                // 2. Сохраняем ВСЕ 100% точек для идеальной синхронности плеера
+                rawData = fullData;
+
+                // 3. Строим графики
                 renderCharts();
+
             } catch (error) {
-                console.error("Ошибка загрузки:", error);
+                console.error("Ошибка загрузки или распаковки логов:", error);
                 alert(`Не удалось загрузить данные за ${dateStr}.\n${error.message}`);
                 rawData = [];
                 renderCharts();
             } finally {
+                // Гарантированно выключаем крутилку загрузки в конце
                 loader.classList.remove('active');
             }
         }
+
+        // Вспомогательная функция быстрого парсинга JSONL-текста в массив (добавьте рядом)
+        function parseJsonl(text) {
+            const lines = text.split('\n');
+            const events = [];
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (line) {
+                    try {
+                        const parsed = JSON.parse(line);
+                        // Если структура обернута во Flask-формат {"events": [...]}, вытаскиваем массив
+                        if (parsed && parsed.events && Array.isArray(parsed.events)) {
+                            return parsed.events;
+                        }
+                        events.push(parsed);
+                    } catch (e) {
+                        // Игнорируем возможные пустые или битые строки
+                    }
+                }
+            }
+            return events;
+        }
+
 
         // Быстрое циклическое сравнение массивов (быстрее JSON.stringify)
         function arraysEqual(arr1, arr2) {
@@ -1841,7 +1884,24 @@
 
             // Выбранный останов (M519: 1=Останов 1, 0=Останов 2)
             const isStop1 = data.M && data.M[519];
-            if (valActiveStop) valActiveStop.textContent = isStop1 ? 'Останов 1' : 'Останов 2';
+
+            if (valActiveStop) {
+                valActiveStop.textContent = isStop1 ? 'Останов 1' : 'Останов 2';
+            }
+
+            // Показываем только активный останов, скрывая неактивный
+            const stopUnit1 = document.getElementById('stopUnit1');
+            const stopUnit2 = document.getElementById('stopUnit2');
+
+            if (stopUnit1 && stopUnit2) {
+                if (isStop1) {
+                    stopUnit1.style.display = 'block';
+                    stopUnit2.style.display = 'none';
+                } else {
+                    stopUnit1.style.display = 'none';
+                    stopUnit2.style.display = 'block';
+                }
+            }
 
             const d714Val = data.D714 !== undefined ? data.D714 : 0;
             if (valD714) valD714.textContent = d714Val;
@@ -1858,6 +1918,42 @@
             // Время опроса ПЛК (мс)
             const pollMsVal = data.poll_duration !== undefined ? data.poll_duration : 0;
             if (valPollMs) valPollMs.textContent = pollMsVal;
+
+            // ==========================================
+            // НОВОЕ: Динамическая проверка аварийных L-сигналов
+            // ==========================================
+            const criticalLAlarms = [
+                2, 13, 16, 39, 41, 42, 43, 44, 45,
+                200, 201, 202, 203, 205
+            ];
+            const activeAlarmsList = document.getElementById('activeAlarmsList');
+            const alarmIndicator = document.getElementById('alarmIndicator');
+
+            if (activeAlarmsList && alarmIndicator) {
+                activeAlarmsList.innerHTML = ''; // Очищаем список перед обновлением
+                let hasAlarm = false;
+
+                if (data.L) {
+                    criticalLAlarms.forEach(idx => {
+                        // Если сигнал равен 1 (true)
+                        if (data.L[idx]) {
+                            hasAlarm = true;
+                            const alarmText = signalNames.L[idx] || `Неизвестная ошибка L${idx}`;
+
+                            const alarmItem = document.createElement('div');
+                            alarmItem.style.fontSize = '12px';
+                            alarmItem.style.lineHeight = '1.3';
+                            alarmItem.style.fontWeight = 'bold';
+                            alarmItem.textContent = `• L${idx}: ${alarmText}`;
+                            activeAlarmsList.appendChild(alarmItem);
+                        }
+                    });
+                }
+
+                // Показываем блок только если есть хотя бы одна активная авария
+                alarmIndicator.style.display = hasAlarm ? 'flex' : 'none';
+            }
+            // ==========================================
 
             // Цепь (X22) — Сначала объявляем переменную, затем используем!
             const statusText = data.X && data.X[18] ? "ВЫКЛ" : "ВКЛ";
