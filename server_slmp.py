@@ -1,4 +1,3 @@
-
 import asyncio
 import logging
 import time
@@ -387,86 +386,66 @@ def ensure_tables_exist():
         logger.error(f"❌ Ошибка создания таблиц: {e}")
 
 
-class BatchedGzipWriter:
+class SingleStreamGzipWriter:
     """
-    Пакетная запись: собирает строки в буфер и сжимает группами.
-    Файл всегда валидный для чтения (concatenated gzip).
-    Сжатие близко к оптимальному (один словарь на группу строк).
+    ОДИН непрерывный gzip-поток на день.
+    Браузер читает его целиком, кроме "живого хвоста" —
+    его устойчивый декодер аккуратно отбрасывает.
     """
-    def __init__(self, base_path, batch_size=50):
+    def __init__(self, base_path):
         self.base_path = base_path
-        self.batch_size = batch_size
-        self.buffer = []
         self.lock = threading.Lock()
         self.current_date = None
-        self.file = None
+        self.raw_file = None
+        self.gz_file = None
         atexit.register(self.close)
-    
+
     def get_path(self, date=None):
         if date is None:
             date = datetime.now()
         return f"{self.base_path}_{date.strftime('%Y-%m-%d')}.jsonl.gz"
-    
-    def _ensure_file(self):
+
+    def _ensure_open(self):
         today = datetime.now().date()
         if self.current_date != today:
-            self._flush()  # Сбрасываем буфер перед сменой дня
-            if self.file:
-                try:
-                    self.file.close()
-                except:
-                    pass
+            self._close_current()
             path = self.get_path()
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            self.file = open(path, 'ab')
-            self.current_date = today
-    
-    def _flush(self):
-        """Сбрасывает накопленные строки в файл одним gzip блоком"""
-        if not self.buffer or not self.file:
-            return
-        try:
-            # Все строки в один блок с общим словарём сжатия
-            data = '\n'.join(self.buffer) + '\n'
-            compressed = gzip.compress(
-                data.encode('utf-8'), 
-                compresslevel=6  # Оптимальное сжатие
+            self.raw_file = open(path, 'ab')
+            self.gz_file = gzip.GzipFile(
+                fileobj=self.raw_file, mode='ab',
+                compresslevel=6, mtime=0
             )
-            self.file.write(compressed)
-            self.file.flush()
-            os.fsync(self.file.fileno())
-            self.buffer = []
-        except Exception as e:
-            logger.error(f"Ошибка flush gzip: {e}")
-    
+            self.current_date = today
+
     def write_line(self, line: str):
-        """Добавляет строку в буфер. Flush при достижении batch_size"""
         with self.lock:
             try:
-                self._ensure_file()
-                self.buffer.append(line)
-                if len(self.buffer) >= self.batch_size:
-                    self._flush()
+                self._ensure_open()
+                self.gz_file.write((line + '\n').encode('utf-8'))
+                self.gz_file.flush()
+                self.raw_file.flush()
+                os.fsync(self.raw_file.fileno())
             except Exception as e:
-                logger.error(f"Ошибка write_line: {e}")
-    
-    def force_flush(self):
-        """Принудительный flush (можно вызывать перед копированием)"""
-        with self.lock:
-            self._flush()
-    
+                logger.error(f"Ошибка записи gzip: {e}")
+                self._close_current()
+
+    def _close_current(self):
+        if self.gz_file:
+            try: self.gz_file.close()
+            except: pass
+        if self.raw_file:
+            try: self.raw_file.close()
+            except: pass
+        self.gz_file = None
+        self.raw_file = None
+        self.current_date = None
+
     def close(self):
         with self.lock:
-            self._flush()  # Важно: сбрасываем остатки!
-            if self.file:
-                try:
-                    self.file.close()
-                except:
-                    pass
-                self.file = None
+            self._close_current()
 
-# ========================== ФАЙЛ ДЛЯ ТАЙМЛАЙН ВИЗУАЛИЗАЦИИ ==========================
-timeline_gz_writer = BatchedGzipWriter(TIMELINE_LOG_BASE, batch_size=100)
+timeline_gz_writer = SingleStreamGzipWriter(TIMELINE_LOG_BASE)
 
 # Храним состояние ТОЛЬКО дискретных сигналов для сравнения
 _prev_discrete_state = {
@@ -505,9 +484,17 @@ def cleanup_old_logs(keep_days=TIMELINE_LOG_RETENTION_DAYS):
         logger.error(f"Ошибка очистки логов: {e}")
 
 def write_timeline_log(plc_data: Dict):
-    """Записывает данные СРАЗУ в сжатый .jsonl.gz файл (один поток на день)"""
+    """Записывает данные в .jsonl.gz с пакетным сжатием"""
     global _prev_discrete_state, _last_timeline_log_time
     
+    # ДИАГНОСТИКА: логируем каждые 100 вызовов
+    if not hasattr(write_timeline_log, '_call_count'):
+        write_timeline_log._call_count = 0
+    write_timeline_log._call_count += 1
+    if write_timeline_log._call_count % 100 == 0:
+        logger.info(f"📝 write_timeline_log вызван {write_timeline_log._call_count} раз")
+  
+   
     current_C = plc_data.get("C", [])
     
     # Оптимизация: пропуск при нулевых счетчиках
@@ -969,7 +956,7 @@ if __name__ == "__main__":
     try:
         print("Запуск очистки устаревших логов...")
         # Вызываем напрямую как обычную функцию, без всяких await
-        cleanup_old_timeline_logs() 
+        cleanup_old_logs()
     except Exception as e:
         print(f"Не удалось выполнить чистку: {e}")
 
