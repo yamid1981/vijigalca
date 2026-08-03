@@ -1005,6 +1005,51 @@
             font-weight: bold;
             white-space: nowrap;
         }
+
+        /* Базовый класс для движущихся тележек */
+        /* Измененные стили для предотвращения перекрытия */
+        .sim-truck {
+            position: absolute;
+            /* Убираем top: 10.5em; и регулируем высоту только через bottom */
+            bottom: 5px;
+            /* Подбирайте это значение (например, 110px, 115px, 120px), пока тележки не встанут идеально над надписями */
+            width: 65px;
+            height: 24px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 99;
+            transition: left 0.25s linear;
+        }
+
+        .truck-label {
+            font-size: 9px;
+            font-weight: bold;
+            color: #000;
+            text-transform: uppercase;
+        }
+
+        /* Передняя тележка (Первая, уехавшая вперед на D4000) — Синяя */
+        #truck-front {
+            background: #29b6f6;
+            border: 2px solid #0288d1;
+            box-shadow: 0 0 6px rgba(41, 182, 246, 0.6);
+        }
+
+        /* Средняя тележка (Вторая, формирует базу на D714) — Оранжевая */
+        #truck-rear {
+            background: #ffa726;
+            border: 2px solid #f57c00;
+            box-shadow: 0 0 6px rgba(255, 167, 38, 0.6);
+        }
+
+        /* Третья тележка (Самая последняя, на старте по C103) — Зеленая */
+        #truck-third {
+            background: #66bb6a;
+            border: 2px solid #388e3c;
+            box-shadow: 0 0 6px rgba(102, 187, 106, 0.6);
+        }
     </style>
 </head>
 
@@ -1140,13 +1185,6 @@
                         <!-- Сюда JavaScript будет динамически добавлять список активных аварий L -->
                     </div>
                 </div>
-                <div id="alarmIndicator" class="alarm-group" style="display: none;">
-                    <span class="alarm-icon">⚠️</span>
-                    <div id="activeAlarmsList"
-                        style="display: flex; flex-direction: column; gap: 4px; text-align: left;">
-                        <!-- Сюда JavaScript будет динамически добавлять список активных аварий L -->
-                    </div>
-                </div>
 
                 <!-- НОВОЕ: Блок активных технологических стопов по участкам -->
                 <div id="activeStopsIndicator" class="stops-group" style="display: none;">
@@ -1161,6 +1199,15 @@
             <div class="conveyor-scheme">
                 <!-- Дорожка цепи -->
                 <div class="chain-track" id="chainTrack"></div>
+                <div id="truck-front" class="sim-truck">
+                    <div class="truck-label">Передняя</div>
+                </div>
+                <div id="truck-rear" class="sim-truck">
+                    <div class="truck-label">Задняя</div>
+                </div>
+                <div id="truck-third" class="sim-truck">
+                    <div class="truck-label">Передняя</div>
+                </div>
 
                 <!-- Компактный вертикальный блок останова (будет прижат влево) -->
                 <div class="stop-unit">
@@ -1569,15 +1616,39 @@
         });
 
         const digitalChart = new Chart(document.getElementById('digitalChart').getContext('2d'), {
-            type: 'line', data: { labels: [], datasets: [] },
+            type: 'line',
+            data: { labels: [], datasets: [] },
             options: {
                 ...commonOptions,
+
+                // ОБРАБОТЧИК КЛИКА ПО ГРАФИКУ ДЛЯ СИНХРОНИЗАЦИИ
+                onClick: (event, activeElements, chart) => {
+                    // Chart.js находит элементы в режиме 'index' (вертикальный срез по времени под курсором)
+                    const points = chart.getElementsAtEventForMode(event, 'index', { intersect: false }, true);
+
+                    if (points.length > 0) {
+                        // Извлекаем индекс точки данных, по которой кликнули
+                        const dataIndex = points[0].index; // В Chart.js v3/v4 это массив, берем первый элемент
+
+                        console.log("Клик по графику цифровых сигналов. Индекс кадра:", dataIndex);
+
+                        // Перематываем плеер на этот индекс
+                        syncPlayerToElementIndex(dataIndex);
+                    }
+                },
+
                 scales: {
                     ...commonOptions.scales,
                     'y-digital': {
-                        type: 'linear', position: 'left', min: 0, max: 1, grid: { color: '#3e3e42' },
+                        type: 'linear',
+                        position: 'left',
+                        min: 0,
+                        max: 1,
+                        grid: { color: '#3e3e42' },
                         ticks: {
-                            color: '#9cdcfe', font: { weight: 'bold', size: 11 }, stepSize: 1,
+                            color: '#9cdcfe',
+                            font: { weight: 'bold', size: 11 },
+                            stepSize: 1,
                             callback: function (value) {
                                 const lane = activeSignals.filter(s => s.type !== 'C')[Math.round(value)];
                                 return lane ? lane.name : '';
@@ -1587,6 +1658,65 @@
                 }
             }
         });
+        function syncPlayerToElementIndex(index) {
+            // Проверяем существование массива данных и корректность переданного индекса
+            if (typeof rawData !== 'undefined' && Array.isArray(rawData) && rawData[index]) {
+
+                // 1. Устанавливаем новый индекс кадра в плеер
+                playerState.currentIndex = index;
+
+                // 2. Синхронизируем положение ползунка (таймлайна), если он есть в HTML
+                // Ищите инпут типа range, у него может быть id 'timelineSlider' или 'playerProgress'
+                const slider = document.getElementById('timelineSlider') || document.getElementById('playerSlider');
+                if (slider) {
+                    slider.value = index;
+                }
+
+                // 3. Вызываем вашу штатную функцию для перерисовки индикаторов, тележек и текстов
+                if (typeof updateIndicators === 'function') {
+                    updateIndicators();
+                }
+            }
+        }
+
+        function syncTimelineToTime(timeString) {
+            // 1. Пытаемся найти индекс кадра в вашем общем массиве данных истории.
+            // Название массива зависит от вашего кода (например, allFrames, historyData, logs)
+            // Предположим, что каждый кадр имеет свойство .time или .timestamp равное "10:04:16,053"
+
+            if (typeof allFrames !== 'undefined' && Array.isArray(allFrames)) {
+                const frameIndex = allFrames.findIndex(frame => frame.time === timeString);
+
+                if (frameIndex !== -1) {
+                    // 2. Если нашли кадр по времени — меняем текущий индекс ползунка/плеера.
+                    // Замените currentFrameIndex и updateUI() на реальные имена из вашего timeline.html
+                    currentFrameIndex = frameIndex;
+
+                    // Если у вас есть ползунок (input type="range"), синхронизируем его положение:
+                    const slider = document.getElementById('timelineSlider'); // Укажите ваш ID ползунка
+                    if (slider) slider.value = frameIndex;
+
+                    // Вызываем вашу главную функцию отрисовки графики и тележек для этого кадра
+                    if (typeof updateUI === 'function') {
+                        updateUI(allFrames[frameIndex]);
+                    }
+                    return;
+                }
+            }
+
+            // ВАРИАНТ Б (Резервный): Если структуры данных сложные, просто вбиваем время 
+            // в ваш существующий текстовый поиск и симулируем нажатие клавиши Enter / кнопки Найти
+            const searchInput = document.getElementById('time-search-input'); // Укажите реальный ID вашего инпута поиска времени
+            if (searchInput) {
+                searchInput.value = timeString;
+                // Триггерим событие изменения или отправки формы, чтобы сработал ваш встроенный поиск
+                searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+                // Если поиск висит на кнопке, можно программно кликнуть по ней:
+                const searchBtn = document.getElementById('time-search-btn'); // Укажите ID кнопки поиска
+                if (searchBtn) searchBtn.click();
+            }
+        }
 
         // Управление видимостью панелей
         const panels = {
@@ -1686,47 +1816,32 @@
             await loadDataForDate(dateStr);
         }
 
-        // ==================== ЗАГРУЗКА И РАСПАКОВКА ДАННЫХ (.jsonl.gz) ====================
+        // ==================== ЗАГРУЗКА И РАСПАКОВКА ДАННЫХ (.jsonl / .jsonl.gz) ====================
         async function loadDataForDate(dateStr) {
             const loader = document.getElementById('loader');
             const loaderText = document.getElementById('loaderText');
             const progressBar = document.getElementById('loaderProgressBar');
 
             loader.classList.add('active');
-            loaderText.textContent = 'Загрузка сжатого архива...';
+            loaderText.textContent = 'Загрузка лога...';
             progressBar.style.width = '0%';
-            progressBar.style.transition = 'none';
-
-            // Умная симуляция прогресса скачивания до 40%
-            let progress = 0;
-            const progressInterval = setInterval(() => {
-                progress += Math.random() * 8;
-                if (progress > 40) progress = 40;
-                progressBar.style.transition = 'width 0.3s ease-out';
-                progressBar.style.width = progress + '%';
-            }, 150);
 
             try {
-                // 1. Скачиваем как бинарный буфер
                 const response = await fetch(`/api/timeline_log?date=${dateStr}`);
                 if (!response.ok) throw new Error(`HTTP ошибка: ${response.status}`);
 
                 const buffer = await response.arrayBuffer();
+                const bytes = new Uint8Array(buffer);
 
-                // 2. Распаковка GZIP через Pako
+                // 🔥 ВСЕГДА РАСПАКОВЫВАЕМ КАК GZIP (теперь файл всегда .gz)
                 loaderText.textContent = 'Распаковка архива (Pako)...';
                 progressBar.style.width = '50%';
-
-                // Даем браузеру микросекунду на отрисовку текста перед тяжелой операцией
                 await new Promise(resolve => setTimeout(resolve, 10));
 
-                // pako.inflate возвращает строку, если передать { to: 'string' }
-                const jsonString = pako.inflate(new Uint8Array(buffer), { to: 'string' });
+                const jsonString = pako.inflate(bytes, { to: 'string' });
 
-                // 3. Парсинг JSONL (каждая строка - отдельный JSON объект)
                 loaderText.textContent = 'Парсинг JSONL строк...';
                 progressBar.style.width = '80%';
-
                 await new Promise(resolve => setTimeout(resolve, 10));
 
                 const lines = jsonString.split('\n');
@@ -1738,46 +1853,33 @@
                         try {
                             fullData.push(JSON.parse(line));
                         } catch (e) {
-                            console.warn("Ошибка парсинга строки", i, line);
+                            console.warn("Ошибка парсинга строки", i);
                         }
                     }
-                    // Обновляем прогресс парсинга каждые 1000 строк для больших файлов
                     if (i % 1000 === 0) {
-                        const parseProgress = 80 + Math.round((i / lines.length) * 15);
-                        progressBar.style.width = parseProgress + '%';
+                        progressBar.style.width = (80 + Math.round((i / lines.length) * 15)) + '%';
                     }
                 }
 
-                // 4. Прореживание данных (если их слишком много для графика)
                 loaderText.textContent = 'Построение графиков...';
                 progressBar.style.width = '95%';
 
-                if (fullData.length > 2000) {
-                    rawData = downsampleData(fullData);
-                } else {
-                    rawData = fullData;
-                }
-
+                rawData = fullData.length > 2000 ? downsampleData(fullData) : fullData;
                 renderCharts();
-
-                // Успех: 100%
                 progressBar.style.width = '100%';
 
             } catch (error) {
-                console.error("Ошибка загрузки или распаковки логов:", error);
+                console.error("Ошибка загрузки логов:", error);
                 alert(`Не удалось загрузить данные за ${dateStr}.\n${error.message}`);
                 rawData = [];
                 renderCharts();
             } finally {
-                // Даем небольшую задержку, чтобы глаз успел заметить 100% перед скрытием
                 setTimeout(() => {
-                    clearInterval(progressInterval);
                     loader.classList.remove('active');
-                    progressBar.style.width = '0%'; // Сброс для следующей загрузки
+                    progressBar.style.width = '0%';
                 }, 400);
             }
         }
-
         // Вспомогательная функция быстрого парсинга JSONL-текста в массив (добавьте рядом)
         function parseJsonl(text) {
             const lines = text.split('\n');
@@ -2191,9 +2293,9 @@
                     cartVisual.classList.add('warning');
 
                     if (isFrontArrived) {
-                        cartLabel.innerHTML = `⬅ ПЕРЕДНЯЯ ТЕЛЕЖКА<br>У АСТАНОВА`;
+                        cartLabel.innerHTML = `⬅ ПЕРЕДНЯЯ ТЕЛЕЖКА<br>У ОСТАНОВА`;
                     } else {
-                        cartLabel.innerHTML = `ЗАДНЯЯ ТЕЛЕЖКА<br>У АСТАНОВА`;
+                        cartLabel.innerHTML = `ЗАДНЯЯ ТЕЛЕЖКА<br>У ОСТАНОВА`;
                     }
                 } else {
                     // Ситуация: Останов полностью чист 
@@ -2254,6 +2356,71 @@
             // --- НОВОЕ: Датчики звеньев цепи ---
             document.getElementById('ind_X_20')?.classList.toggle('active', X24_end);
             document.getElementById('ind_X_21')?.classList.toggle('active', X25_start);
+
+
+            // Вставьте этот код в функцию отрисовки кадра таймлайна
+
+            const tFront = document.getElementById('truck-front'); // 1-я (улетела вперед)
+            const tRear = document.getElementById('truck-rear');   // 2-я (на базе D714)
+            const tThird = document.getElementById('truck-third'); // 3-я (на старте по C103)
+
+            if (tFront && tRear && tThird) {
+                // Точки привязки на схеме в процентах (left)
+                const posStart = 5;     // Самый левый край конвейера
+                const posStop1 = 28;    // Позиция Останова 1
+                const posBase714 = 55;  // Позиция Базы D714
+                const posEnd = 90;      // Конец конвейера
+
+                // ==========================================================
+                // ЛОГИКА 3-Й ТЕЛЕЖКИ (Зеленая: Старт и движение до Останова 1)
+                // ==========================================================
+                // На вашем кадре C103 = 26 (это больше 5), значит она уже доехала до останова и ждет
+                if (X7 === 1 || X7 === true || linksVal >= 5) {
+                    tThird.style.left = posStop1 + '%'; // Четко стоит на Останове 1
+                } else if (X6 === 1 || X6 === true) {
+                    tThird.style.left = (posStop1 - 4) + '%'; // Подкатывается к останову
+                } else if (linksVal > 0 && linksVal < 5) {
+                    // Плавное движение от старта до останова, пока счетчик звеньев растет от 1 до 5
+                    let progress = linksVal / 5;
+                    tThird.style.left = (posStart + progress * (posStop1 - posStart)) + '%';
+                } else {
+                    tThird.style.left = posStart + '%'; // Просто ожидает на старте
+                }
+
+                // ==========================================================
+                // ЛОГИКА 2-Й ТЕЛЕЖКИ (Оранжевая: Формирование базы по D714)
+                // ==========================================================
+                // На вашем кадре D714 = 15 (максимум), она стоит ровно посередине конвейера
+                if (d714Val > 0) {
+                    let maxD714 = 15; // Максимальное значение для расчета пропорции
+                    let progress = Math.min(d714Val / maxD714, 1);
+                    tRear.style.left = (posStop1 + progress * (posBase714 - posStop1)) + '%';
+                    tRear.style.opacity = '1';
+                } else {
+                    // Если база еще не начала формироваться для этой детали, 
+                    // она либо визуально скрыта, либо ожидает за штангой
+                    tRear.style.left = posStop1 + '%';
+                }
+
+                // ==========================================================
+                // ЛОГИКА 1-Й ТЕЛЕЖКИ (Синяя: Выпущенная вперед по D4000)
+                // ==========================================================
+                // Теперь она не исчезнет! Она управляется регистром D4000 (на кадре он равен 36)
+                if (d74000Val > 0) {
+                    let maxD4000 = 36; // Предел по D4000 с вашего экрана
+                    let progress = Math.min(d74000Val / maxD4000, 1);
+                    tFront.style.left = (posBase714 + progress * (posEnd - posBase714)) + '%';
+                    tFront.style.opacity = '1';
+                } else {
+                    // Если первая тележка уже сгрузилась (цикл завершен), удерживаем ее в конце 
+                    // или переводим в режим ожидания перед базой, пока D4000 равен 0
+                    tFront.style.left = posEnd + '%';
+                    // Если нужно, чтобы она исчезала, когда цикл ПЛК полностью сброшен:
+                    // tFront.style.opacity = '0'; 
+                }
+            }
+
+
 
             // Обновляем время и прогресс
             if (data.ts) {
