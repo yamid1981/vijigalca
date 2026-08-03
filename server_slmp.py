@@ -1,3 +1,4 @@
+
 import asyncio
 import logging
 import time
@@ -11,7 +12,15 @@ import pyodbc
 from pymcprotocol import Type3E
 import os
 import threading
+import gzip
+import tempfile
+import shutil
+import atexit
 
+
+TIMELINE_LOG_BASE = r"c:/log/timeline_log"
+TIMELINE_LOG_LOCK = threading.Lock()
+TIMELINE_LOG_RETENTION_DAYS = 90
 # Глобальные переменные для хранения состояния 
 _prev_c110 = None
 _last_formatted_text = ""
@@ -378,11 +387,86 @@ def ensure_tables_exist():
         logger.error(f"❌ Ошибка создания таблиц: {e}")
 
 
+class BatchedGzipWriter:
+    """
+    Пакетная запись: собирает строки в буфер и сжимает группами.
+    Файл всегда валидный для чтения (concatenated gzip).
+    Сжатие близко к оптимальному (один словарь на группу строк).
+    """
+    def __init__(self, base_path, batch_size=50):
+        self.base_path = base_path
+        self.batch_size = batch_size
+        self.buffer = []
+        self.lock = threading.Lock()
+        self.current_date = None
+        self.file = None
+        atexit.register(self.close)
+    
+    def get_path(self, date=None):
+        if date is None:
+            date = datetime.now()
+        return f"{self.base_path}_{date.strftime('%Y-%m-%d')}.jsonl.gz"
+    
+    def _ensure_file(self):
+        today = datetime.now().date()
+        if self.current_date != today:
+            self._flush()  # Сбрасываем буфер перед сменой дня
+            if self.file:
+                try:
+                    self.file.close()
+                except:
+                    pass
+            path = self.get_path()
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            self.file = open(path, 'ab')
+            self.current_date = today
+    
+    def _flush(self):
+        """Сбрасывает накопленные строки в файл одним gzip блоком"""
+        if not self.buffer or not self.file:
+            return
+        try:
+            # Все строки в один блок с общим словарём сжатия
+            data = '\n'.join(self.buffer) + '\n'
+            compressed = gzip.compress(
+                data.encode('utf-8'), 
+                compresslevel=6  # Оптимальное сжатие
+            )
+            self.file.write(compressed)
+            self.file.flush()
+            os.fsync(self.file.fileno())
+            self.buffer = []
+        except Exception as e:
+            logger.error(f"Ошибка flush gzip: {e}")
+    
+    def write_line(self, line: str):
+        """Добавляет строку в буфер. Flush при достижении batch_size"""
+        with self.lock:
+            try:
+                self._ensure_file()
+                self.buffer.append(line)
+                if len(self.buffer) >= self.batch_size:
+                    self._flush()
+            except Exception as e:
+                logger.error(f"Ошибка write_line: {e}")
+    
+    def force_flush(self):
+        """Принудительный flush (можно вызывать перед копированием)"""
+        with self.lock:
+            self._flush()
+    
+    def close(self):
+        with self.lock:
+            self._flush()  # Важно: сбрасываем остатки!
+            if self.file:
+                try:
+                    self.file.close()
+                except:
+                    pass
+                self.file = None
+
 # ========================== ФАЙЛ ДЛЯ ТАЙМЛАЙН ВИЗУАЛИЗАЦИИ ==========================
-# ========================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ДЛЯ ТАЙМЛАЙНА ==========================
-TIMELINE_LOG_BASE = r"c:/log/timeline_log"
-TIMELINE_LOG_LOCK = threading.Lock()
-TIMELINE_LOG_RETENTION_DAYS = 10
+timeline_gz_writer = BatchedGzipWriter(TIMELINE_LOG_BASE, batch_size=100)
 
 # Храним состояние ТОЛЬКО дискретных сигналов для сравнения
 _prev_discrete_state = {
@@ -392,47 +476,43 @@ _last_timeline_log_time = 0.0
 _LOG_INTERVAL_SEC = 1.0  # Принудительная запись каждые 1 секунду (идеально для счетчиков и графика)
 
 def get_timeline_log_path(date=None):
-    """Возвращает путь к лог-файлу timeline за конкретную дату"""
+    """Теперь всегда возвращает .jsonl.gz"""
     if date is None:
         date = datetime.now()
-    date_str = date.strftime("%Y-%m-%d")
-    return f"{TIMELINE_LOG_BASE}_{date_str}.jsonl"
+    return f"{TIMELINE_LOG_BASE}_{date.strftime('%Y-%m-%d')}.jsonl.gz"
 
-def cleanup_old_timeline_logs(keep_days=TIMELINE_LOG_RETENTION_DAYS):
-    """Удаляет старые timeline лог-файлы"""
+def cleanup_old_logs(keep_days=TIMELINE_LOG_RETENTION_DAYS):
     try:
-        today = datetime.now().date()
-        log_dir = os.path.dirname(TIMELINE_LOG_BASE) or "."
+        log_dir = os.path.dirname(TIMELINE_LOG_BASE)
         if not os.path.exists(log_dir):
-            return []
-        deleted = []
-        pattern = os.path.join(log_dir, f"{os.path.basename(TIMELINE_LOG_BASE)}_*.jsonl")
-        for filepath in glob.glob(pattern):
-            try:
-                filename = os.path.basename(filepath)
-                date_part = filename.replace(f"{os.path.basename(TIMELINE_LOG_BASE)}_", "").replace(".jsonl", "")
-                file_date = datetime.strptime(date_part, "%Y-%m-%d").date()
-                if (today - file_date).days >= keep_days:
-                    os.remove(filepath)
-                    deleted.append(filename)
-                    logger.info(f"🗑️ Удален старый timeline лог: {filename}")
-            except (ValueError, Exception):
-                continue
-        return deleted
+            return
+        
+        now = time.time()
+        cutoff = now - (keep_days * 86400)
+        deleted = 0
+        
+        for filename in os.listdir(log_dir):
+            # 🔥 Только .gz теперь
+            if filename.startswith("timeline_log_") and filename.endswith(".jsonl.gz"):
+                path = os.path.join(log_dir, filename)
+                if os.path.getmtime(path) < cutoff:
+                    os.remove(path)
+                    deleted += 1
+        
+        if deleted > 0:
+            logger.info(f"🧹 Удалено {deleted} старых лог-файлов")
     except Exception as e:
-        logger.error(f"Ошибка очистки timeline логов: {e}")
-        return []
+        logger.error(f"Ошибка очистки логов: {e}")
 
 def write_timeline_log(plc_data: Dict):
-    """ГИБРИДНАЯ ЗАПИСЬ с ленивой проверкой целостности данных"""
+    """Записывает данные СРАЗУ в сжатый .jsonl.gz файл (один поток на день)"""
     global _prev_discrete_state, _last_timeline_log_time
     
     current_C = plc_data.get("C", [])
     
-    # ОПТИМИЗАЦИЯ: any() вместо sum(). Остановится на первом же ненулевом значении.
+    # Оптимизация: пропуск при нулевых счетчиках
     if current_C and len(current_C) > 20:
-        if not any(current_C[:20]):  # Быстрее, чем sum() == 0
-            logger.warning("⚠️ Обнаружены нулевые счетчики (таймаут?). Пропускаем запись.")
+        if not any(current_C[:20]):
             return
 
     current_X = plc_data.get("X", [])
@@ -452,7 +532,6 @@ def write_timeline_log(plc_data: Dict):
 
     if discrete_changed or needs_heartbeat:
         log_entry = {
-            # ОПТИМИЗАЦИЯ: Убран избыточный вызов datetime для ISO-строки, f-строка быстрее
             "ts": datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3], 
             "poll_duration": plc_data.get("poll_duration", 0.0),
             "X": current_X, "Y": current_Y, "L": current_L, "M": current_M,
@@ -460,24 +539,17 @@ def write_timeline_log(plc_data: Dict):
             "D100": plc_data.get("D100", 0),
             "D714": plc_data.get("D714", 0),
             "D4000": plc_data.get("D4000", 0),
-            # "D7016": plc_data.get("D7016", []),
             "D2000": plc_data.get("D2000", []),
             "D700": plc_data.get("D700", [])
         }
         
-        log_path = get_timeline_log_path()
-        # ВНИМАНИЕ: os.makedirs(os.path.dirname(log_path)) лучше вызвать ОДИН раз при запуске скрипта!
-
-        try:
-            with TIMELINE_LOG_LOCK:
-                with open(log_path, "a", encoding="utf-8") as f:
-                    # separators убирает пробелы. f.flush() убран, так как сработает автоматом при выходе
-                    f.write(json.dumps(log_entry, ensure_ascii=False, separators=(',', ':')) + "\n")
-            
-            _prev_discrete_state = {"X": current_X, "Y": current_Y, "L": current_L, "M": current_M}
-            _last_timeline_log_time = current_time
-        except Exception as e:
-            logger.error(f"❌ Ошибка записи timeline лога: {e}")
+        # 🔥 ОДНА СТРОКА ВМЕСТО СТАРОГО КОДА С open(...)
+        timeline_gz_writer.write_line(
+            json.dumps(log_entry, ensure_ascii=False, separators=(',', ':'))
+        )
+        
+        _prev_discrete_state = {"X": current_X, "Y": current_Y, "L": current_L, "M": current_M}
+        _last_timeline_log_time = current_time
 
 # ========================== СБОР ДАННЫХ С ПЛК ==========================
 def red_slmp(read_rd: bool = False, max_retries: int = 3) -> Optional[Dict]:
@@ -680,7 +752,7 @@ def decode_rd_record(rd_data: List[int], index: int) -> Optional[Dict]:
         return None
 
 
-def update_ist_ostan(d7016: List[int], d700: List[int], d2000: List[int], rd_data: List[int], c110: int, signals: Dict[str, bool]):
+def update_ist_ostan( d700: List[int], d2000: List[int], rd_data: List[int], c110: int, signals: Dict[str, bool]):
     """Обновляет таблицу истории остановов (na_lente + tek_stop)."""
     ist_table_name = get_ist_ostan_table_name()
     
@@ -880,7 +952,7 @@ async def main_loop():
             
             await to_thread(
                 update_ist_ostan,
-                plc_data["D7016"],
+                # plc_data["D7016"],
                 plc_data["D700"],
                 plc_data["D2000"],
                 plc_data["RD"],
@@ -892,6 +964,16 @@ async def main_loop():
         await asyncio.sleep(POLL_INTERVAL)
 
 if __name__ == "__main__":
+
+    # 2. СЕЙЧАС ЖЕ запускаем очистку логов старше 90 дней (строго ОДИН РАЗ)
+    try:
+        print("Запуск очистки устаревших логов...")
+        # Вызываем напрямую как обычную функцию, без всяких await
+        cleanup_old_timeline_logs() 
+    except Exception as e:
+        print(f"Не удалось выполнить чистку: {e}")
+
+    # 3. Запуск основного цикла опроса ПЛК
     try:
         asyncio.run(main_loop())
     except KeyboardInterrupt:
