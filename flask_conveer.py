@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, send_file, after_this_request
 import json
 import os
 import glob
@@ -13,6 +13,13 @@ import threading
 import time
 from collections import deque
 from typing import Optional, Dict, List
+import gzip
+import traceback
+import shutil
+import tempfile
+
+
+
 
 app = Flask(__name__)
 
@@ -25,7 +32,7 @@ JSON_FILE = 'plc_state.json'
 TIMELINE_LOG_DIR = r"c:/log" 
 LOG_FILE_PREFIX = "timeline_log_"
 # Параметры подключения к БД
-DB_SERVER = 'tcp:127.0.0.1\OITNK,1433'
+DB_SERVER = r'tcp:127.0.0.1\OITNK,1433'
 DB_NAME = 'yamid'
 DB_USER = 'klient'
 DB_PASS = '1234567'
@@ -861,19 +868,33 @@ def get_timeline_data():
     date_str = request.args.get('date')
     if not date_str:
         date_str = datetime.now().strftime("%Y-%m-%d")
+        
     try:
-        # Читаем напрямую из timeline_log, где лежат полные кадры ПЛК
-        log_path = get_timeline_log_path(datetime.strptime(date_str, "%Y-%m-%d"))
+        # 1. Формируем базовый путь (без расширения)
+        base_log_path = get_timeline_log_path(datetime.strptime(date_str, "%Y-%m-%d"))
+        
+        # 2. Определяем, какой файл существует: приоритет у .gz, затем обычный .jsonl
+        gz_path = base_log_path.replace(".jsonl", ".jsonl.gz")
+        
         events = []
-        if os.path.exists(log_path):
-            with open(log_path, 'r', encoding='utf-8') as f:
+        
+        if os.path.exists(gz_path):
+            # Читаем сжатый архив (режим 'rt' — read text)
+            with gzip.open(gz_path, 'rt', encoding='utf-8') as f:
                 for line in f:
                     line = line.strip()
                     if line:
-                        try:
-                            events.append(json.loads(line))
-                        except:
-                            pass
+                        try: events.append(json.loads(line))
+                        except: pass
+        elif os.path.exists(base_log_path):
+            # Читаем обычный текстовый файл (актуально для сегодняшнего дня)
+            with open(base_log_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try: events.append(json.loads(line))
+                        except: pass
+
         return jsonify({
             'date': date_str,
             'events': events,
@@ -886,35 +907,78 @@ def get_timeline_data():
 
 @app.route('/api/timeline_log')
 def get_timeline_log():
-    """Получение данных из timeline_log.jsonl для визуализации"""
-    date_str = request.args.get('date')
-    
-    if not date_str:
-        date_str = datetime.now().strftime("%Y-%m-%d")
-    
+    """Отдаёт timeline log с подробным логированием ошибок"""
     try:
-        events = []
-        log_path = get_timeline_log_path(datetime.strptime(date_str, "%Y-%m-%d"))
+        date_str = request.args.get('date') or datetime.now().strftime("%Y-%m-%d")
+        is_today = (date_str == datetime.now().strftime("%Y-%m-%d"))
         
-        if os.path.exists(log_path):
-            with open(log_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        try:
-                            events.append(json.loads(line))
-                        except:
-                            pass
+        gz_path = f"c:/log/timeline_log_{date_str}.jsonl.gz"
         
-        return jsonify({
-            'date': date_str,
-            'events': events,
-            'total_events': len(events)
-        })
+        print(f"[DEBUG] date_str={date_str}, is_today={is_today}")
+        print(f"[DEBUG] gz_path={gz_path}")
+        print(f"[DEBUG] exists={os.path.exists(gz_path)}")
         
+        if not os.path.exists(gz_path):
+            return jsonify({'date': date_str, 'events': [], 'total_events': 0})
+        
+        if is_today:
+            # Делаем временную копию
+            tmp_fd, tmp_path = tempfile.mkstemp(suffix='.jsonl.gz')
+            os.close(tmp_fd)
+            
+            print(f"[DEBUG] tmp_path={tmp_path}")
+            
+            try:
+                # Копируем файл
+                shutil.copy2(gz_path, tmp_path)
+                print(f"[DEBUG] Файл скопирован успешно")
+                
+                @after_this_request
+                def cleanup(response):
+                    def delete_later():
+                        time.sleep(2)
+                        try: os.remove(tmp_path)
+                        except: pass
+                    import threading
+                    threading.Thread(target=delete_later, daemon=True).start()
+                    return response
+                
+                response = send_file(
+                    tmp_path,
+                    mimetype='application/gzip',
+                    download_name=f'timeline_log_{date_str}.jsonl.gz'
+                )
+                response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                print(f"[DEBUG] Отправка ответа успешна")
+                return response
+                
+            except Exception as e:
+                print(f"[ERROR] Ошибка при копировании/отправке: {e}")
+                traceback.print_exc()
+                try:
+                    os.remove(tmp_path)
+                except:
+                    pass
+                return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
+        
+        else:
+            # Прошлые дни — читаем напрямую
+            response = send_file(
+                gz_path, 
+                mimetype='application/gzip',
+                download_name=f'timeline_log_{date_str}.jsonl.gz'
+            )
+            response.headers['Cache-Control'] = 'public, max-age=86400'
+            return response
+            
     except Exception as e:
-        print(f"Ошибка в get_timeline_log: {e}")
-        return jsonify({'error': str(e)}), 500
+        print(f"[FATAL ERROR] {e}")
+        traceback.print_exc()
+        return jsonify({
+            'error': str(e), 
+            'traceback': traceback.format_exc()
+        }), 500
+
 def get_active_plc_state():
     """Безопасно читает данные из активного JSON-буфера"""
     try:
@@ -1943,26 +2007,43 @@ def get_event_log_by_date():
         logger.error(f"Error in /api/event_log_by_date: {e}")
         return jsonify({"error": str(e)}), 500
 
+import glob # Убедитесь, что этот импорт есть вверху файла
 
 @app.route('/api/available_dates', methods=['GET'])
 def get_available_dates():
-    """Возвращает список дат, за которые реально существуют лог-файлы"""
+    """Возвращает список дат, за которые реально существуют лог-файлы (с поддержкой .gz)"""
     try:
-        pattern = os.path.join(TIMELINE_LOG_DIR, f"{LOG_FILE_PREFIX}*.jsonl")
-        files = glob.glob(pattern)
+        # Находим обычные файлы .jsonl
+        pattern_jsonl = os.path.join(TIMELINE_LOG_DIR, f"{LOG_FILE_PREFIX}*.jsonl")
+        files_jsonl = glob.glob(pattern_jsonl)
+        
+        # Находим сжатые файлы .jsonl.gz
+        pattern_gz = os.path.join(TIMELINE_LOG_DIR, f"{LOG_FILE_PREFIX}*.jsonl.gz")
+        files_gz = glob.glob(pattern_gz)
+        
+        # Объединяем оба списка файлов
+        all_files = files_jsonl + files_gz
         
         dates = []
-        for filepath in files:
+        for filepath in all_files:
             filename = os.path.basename(filepath)
-            # Извлекаем дату из имени файла: timeline_log_2026-07-28.jsonl -> 2026-07-28
-            date_str = filename.replace(LOG_FILE_PREFIX, "").replace(".jsonl", "")
-            dates.append(date_str)
+            # Отрезаем префикс и любые варианты расширений (.jsonl или .jsonl.gz)
+            date_str = filename.replace(LOG_FILE_PREFIX, "").replace(".jsonl.gz", "").replace(".jsonl", "")
             
-        # Сортируем даты для удобства
+            if date_str not in dates:
+                dates.append(date_str)
+                
+        # Сортируем даты по убыванию, как было у вас
         dates.sort(reverse=True)
+        
+        # Возвращаем строго в том формате, который ждет фронтенд!
         return jsonify({"dates": dates})
+        
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+
 @app.route('/plc_XYL')
 def plc_XYL():
     """PLC X/Y/L/C/D data endpoint for plc_admin.html conveyor monitoring"""
