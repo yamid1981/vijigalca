@@ -1050,6 +1050,95 @@
             border: 2px solid #388e3c;
             box-shadow: 0 0 6px rgba(102, 187, 106, 0.6);
         }
+
+        /* === РЕЗУЛЬТАТЫ ПОИСКА СОБЫТИЙ === */
+        .search-result-item {
+            padding: 4px 8px;
+            margin: 2px 0;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            background: #2d2d2d;
+            border-left: 3px solid #555;
+        }
+
+        .search-result-item:hover {
+            background: #3c3c3c;
+        }
+
+        .search-result-item.rising {
+            border-left-color: #4caf50;
+        }
+
+        .search-result-item.falling {
+            border-left-color: #f44336;
+        }
+
+        .search-result-item.counter {
+            border-left-color: #00e5ff;
+        }
+
+        .search-result-item.current {
+            background: #2d2613;
+            outline: 1px dashed #ffc107;
+        }
+
+        .sr-time {
+            color: #9cdcfe;
+        }
+
+        .search-result-item.rising .sr-kind {
+            color: #4caf50;
+            font-weight: bold;
+        }
+
+        .search-result-item.falling .sr-kind {
+            color: #f44336;
+            font-weight: bold;
+        }
+
+        .search-result-item.counter .sr-kind {
+            color: #00e5ff;
+            font-weight: bold;
+        }
+
+        /* Впереди идущая (серо-голубая) */
+        #truck-ahead {
+            background: #b0bec5;
+            border: 2px solid #78909c;
+            box-shadow: 0 0 6px rgba(176, 190, 197, 0.6);
+        }
+
+        /* _1 — Передняя (синяя) */
+        #_1 {
+            background: #29b6f6;
+            border: 2px solid #0288d1;
+            box-shadow: 0 0 6px rgba(41, 182, 46, 0.6);
+        }
+
+        /* _2 — Задняя (оранжевая) */
+        #_2 {
+            background: #ffa726;
+            border: 2px solid #f57c00;
+            box-shadow: 0 0 6px rgba(255, 167, 38, 0.6);
+        }
+
+        /* _3 — Передняя (зелёная) */
+        #_3 {
+            background: #66bb6a;
+            border: 2px solid #388e3c;
+            box-shadow: 0 0 6px rgba(102, 187, 106, 0.6);
+        }
+
+        /* _4 — Задняя (серо-голубая, впереди идущая) */
+        #_4 {
+            background: #b0bec5;
+            border: 2px solid #78909c;
+            box-shadow: 0 0 6px rgba(176, 190, 197, 0.6);
+        }
     </style>
 </head>
 
@@ -1199,16 +1288,18 @@
             <div class="conveyor-scheme">
                 <!-- Дорожка цепи -->
                 <div class="chain-track" id="chainTrack"></div>
-                <div id="truck-front" class="sim-truck">
+                <div id="_1" class="sim-truck">
                     <div class="truck-label">Передняя</div>
                 </div>
-                <div id="truck-rear" class="sim-truck">
+                <div id="_2" class="sim-truck">
                     <div class="truck-label">Задняя</div>
                 </div>
-                <div id="truck-third" class="sim-truck">
+                <div id="_3" class="sim-truck">
                     <div class="truck-label">Передняя</div>
                 </div>
-
+                <div id="_4" class="sim-truck">
+                    <div class="truck-label">Задняя</div>
+                </div>
                 <!-- Компактный вертикальный блок останова (будет прижат влево) -->
                 <div class="stop-unit">
 
@@ -1309,7 +1400,50 @@
                 <button onclick="clearTimeSearch()"
                     style="width: auto; margin: 0; padding: 5px 15px; background: #555;">Очистить</button>
             </div>
-
+            <!-- ==================== ПОИСК ПО СОБЫТИЯМ ==================== -->
+            <div
+                style="background: #1e1e1e; padding: 15px; border-radius: 6px; margin-bottom: 15px; border: 1px solid #3e3e42;">
+                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px;">
+                    <label style="color: #ff9800; font-weight: bold; margin: 0;">🔎 Поиск событий:</label>
+                    <input type="text" id="eventSearchInput" placeholder="L43, X6, M519, C110"
+                        style="background: #3c3c3c; color: #fff; border: 1px solid #555; padding: 5px 10px; border-radius: 4px; font-size: 14px; width: 140px; text-transform: uppercase; margin: 0;"
+                        onkeydown="if(event.key==='Enter') searchEvents()">
+                    <select id="searchMode" style="width: 190px; margin: 0;">
+                        <option value="any">Любое изменение</option>
+                        <option value="rising">Только включение (0→1)</option>
+                        <option value="falling">Только выключение (1→0)</option>
+                    </select>
+                    <button onclick="searchEvents()" style="width: auto; margin: 0; padding: 5px 15px;">Найти</button>
+                    <button onclick="searchPrev()" title="Предыдущее событие"
+                        style="width: auto; margin: 0; padding: 5px 10px;">⬅</button>
+                    <button onclick="searchNext()" title="Следующее событие"
+                        style="width: auto; margin: 0; padding: 5px 10px;">➡</button>
+                    <span id="searchCount" style="color: #888; font-size: 12px;"></span>
+                </div>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px;">
+                    <span style="color:#888; font-size:11px; align-self:center;">Быстрый поиск:</span>
+                    <button onclick="quickSearch('L43')"
+                        style="width:auto;margin:0;padding:3px 8px;font-size:11px;background:#9c27b0;">L43 Тележка не
+                        определена</button>
+                    <button onclick="quickSearch('L13')"
+                        style="width:auto;margin:0;padding:3px 8px;font-size:11px;background:#9c27b0;">L13 Нет
+                        передней</button>
+                    <button onclick="quickSearch('L16')"
+                        style="width:auto;margin:0;padding:3px 8px;font-size:11px;background:#9c27b0;">L16 Нет
+                        задней</button>
+                    <button onclick="quickSearch('M40')"
+                        style="width:auto;margin:0;padding:3px 8px;font-size:11px;background:#ff9800;">M40 ГДЕ-ТО
+                        АВАРИЯ</button>
+                    <button onclick="quickSearch('X22')"
+                        style="width:auto;margin:0;padding:3px 8px;font-size:11px;background:#4caf50;">X22 ЦЕПЬ</button>
+                    <button onclick="quickSearch('C110')"
+                        style="width:auto;margin:0;padding:3px 8px;font-size:11px;background:#0e639c;">C110 Счётчик
+                        машин</button>
+                </div>
+                <div id="searchResults"
+                    style="max-height: 220px; overflow-y: auto; background: #252526; border: 1px solid #3e3e42; border-radius: 4px; padding: 5px; display: none; font-family: 'Courier New', monospace;">
+                </div>
+            </div>
             <div style="background: #1e1e1e; padding: 15px; border-radius: 6px; margin-bottom: 15px;">
                 <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                     <button onclick="playerFirst()" style="width: 40px; margin: 0;">⏮</button>
@@ -1332,7 +1466,10 @@
                         <option value="50">50x</option>
                         <option value="100">100x</option>
                     </select>
-
+                    <label title="Когда цепь стоит и нет событий — плеер прыгает к следующему событию"
+                        style="display:flex; align-items:center; gap:6px; color:#ffb74d; font-size:12px; font-weight:bold; cursor:pointer; margin-left:10px;">
+                        <input type="checkbox" id="skipIdle"> ⏩ Пропускать простой
+                    </label>
                     <div id="currentTimeDisplay"
                         style="color: #ffc107; font-weight: bold; font-family: monospace; font-size: 16px;">
                         00:00:00.000
@@ -1587,7 +1724,38 @@
         let activeSignals = [];
         let calendarDate = new Date();
         let availableDatesSet = new Set();
+        // ==================== УСТОЙЧИВАЯ РАСПАКОВКА GZIP ====================
+        async function decompressGzip(bytes) {
+            if (typeof DecompressionStream !== 'undefined') {
+                try {
+                    const ds = new DecompressionStream('gzip');
+                    const reader = new Blob([bytes]).stream().pipeThrough(ds).getReader();
+                    const decoder = new TextDecoder('utf-8');
+                    let out = '';
 
+                    while (true) {
+                        let chunk;
+                        try {
+                            chunk = await reader.read();
+                        } catch (e) {
+                            // Хвост обрезан (файл копировался в момент записи) —
+                            // сохраняем всю корректно распакованную часть
+                            console.warn('⚠️ Хвост архива обрезан, сохраняю корректную часть данных');
+                            break;
+                        }
+                        if (chunk.done) break;
+                        out += decoder.decode(chunk.value, { stream: true });
+                    }
+                    out += decoder.decode(); // завершить декодер
+
+                    if (out.length > 0) return out;
+                } catch (e) {
+                    console.warn('DecompressionStream недоступен:', e);
+                }
+            }
+            // Fallback для очень старых браузеров
+            return pako.inflate(bytes, { to: 'string' });
+        }
         // ==================== ИНИЦИАЛИЗАЦИЯ ГРАФИКОВ ====================
         const commonOptions = {
             responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
@@ -1823,8 +1991,17 @@
             const progressBar = document.getElementById('loaderProgressBar');
 
             loader.classList.add('active');
-            loaderText.textContent = 'Загрузка лога...';
+            loaderText.textContent = 'Загрузка файла лога...';
             progressBar.style.width = '0%';
+            progressBar.style.transition = 'none';
+
+            let progress = 0;
+            const progressInterval = setInterval(() => {
+                progress += Math.random() * 8;
+                if (progress > 40) progress = 40;
+                progressBar.style.transition = 'width 0.3s ease-out';
+                progressBar.style.width = progress + '%';
+            }, 150);
 
             try {
                 const response = await fetch(`/api/timeline_log?date=${dateStr}`);
@@ -1833,13 +2010,26 @@
                 const buffer = await response.arrayBuffer();
                 const bytes = new Uint8Array(buffer);
 
-                // 🔥 ВСЕГДА РАСПАКОВЫВАЕМ КАК GZIP (теперь файл всегда .gz)
-                loaderText.textContent = 'Распаковка архива (Pako)...';
-                progressBar.style.width = '50%';
-                await new Promise(resolve => setTimeout(resolve, 10));
+                // Определяем формат по сигнатуре: 0x1f 0x8b = GZip
+                const isGzip = bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
 
-                const jsonString = pako.inflate(bytes, { to: 'string' });
+                let jsonString;
 
+                if (isGzip) {
+                    // 🔥 УМНАЯ РАСПАКОВКА: DecompressionStream + fallback Pako
+                    loaderText.textContent = 'Распаковка архива (нативный декодер)...';
+                    progressBar.style.width = '50%';
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                    jsonString = await decompressGzip(bytes);
+                } else {
+                    // Сегодняшний .jsonl (если вдруг остался несжатый)
+                    loaderText.textContent = 'Чтение текстового лога...';
+                    progressBar.style.width = '50%';
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                    jsonString = new TextDecoder('utf-8').decode(bytes);
+                }
+
+                // Парсинг JSONL
                 loaderText.textContent = 'Парсинг JSONL строк...';
                 progressBar.style.width = '80%';
                 await new Promise(resolve => setTimeout(resolve, 10));
@@ -1865,6 +2055,7 @@
                 progressBar.style.width = '95%';
 
                 rawData = fullData.length > 2000 ? downsampleData(fullData) : fullData;
+                buildEventIndex();
                 renderCharts();
                 progressBar.style.width = '100%';
 
@@ -1875,6 +2066,7 @@
                 renderCharts();
             } finally {
                 setTimeout(() => {
+                    clearInterval(progressInterval);
                     loader.classList.remove('active');
                     progressBar.style.width = '0%';
                 }, 400);
@@ -2046,7 +2238,44 @@
                 updateIndicators();
             }
         }
+        // ==================== ИНДЕКС СОБЫТИЙ (для пропуска простоя) ====================
+        let eventIndices = [];
 
+        function buildEventIndex() {
+            eventIndices = [];
+            for (let i = 0; i < rawData.length; i++) {
+                if (i === 0) { eventIndices.push(i); continue; }
+                const cur = rawData[i], prev = rawData[i - 1];
+
+                // Пуск/останов цепи (X22) — ВСЕГДА событие
+                if ((cur.X && cur.X[18]) !== (prev.X && prev.X[18])) { eventIndices.push(i); continue; }
+
+                // Любое изменение дискретных сигналов
+                if (!arraysEqual(cur.X, prev.X) || !arraysEqual(cur.Y, prev.Y) ||
+                    !arraysEqual(cur.M, prev.M) || !arraysEqual(cur.L, prev.L)) {
+                    eventIndices.push(i); continue;
+                }
+
+                // Смена задания
+                if (cur.D714 !== prev.D714 || cur.D4000 !== prev.D4000) {
+                    eventIndices.push(i);
+                }
+                // ВАЖНО: счётчики C НЕ считаем событиями — иначе "время стоп"
+                // (C30-C42) тикает каждую секунду простоя и ничего бы не пропускалось
+            }
+            console.log(`📇 Индекс событий: ${eventIndices.length} из ${rawData.length} кадров`);
+        }
+
+        function findNextEventIndex(fromIdx) {
+            // Бинарный поиск: первый eventIndices[k] > fromIdx
+            let lo = 0, hi = eventIndices.length - 1, ans = -1;
+            while (lo <= hi) {
+                const mid = (lo + hi) >> 1;
+                if (eventIndices[mid] > fromIdx) { ans = eventIndices[mid]; hi = mid - 1; }
+                else lo = mid + 1;
+            }
+            return ans;
+        }
         // ==================== ПЛЕЕР И ВИЗУАЛИЗАЦИЯ ====================
         let playerState = { isPlaying: false, currentIndex: 0, speed: 5, timeoutId: null };
         let animationFrameId = null;
@@ -2358,68 +2587,8 @@
             document.getElementById('ind_X_21')?.classList.toggle('active', X25_start);
 
 
-            // Вставьте этот код в функцию отрисовки кадра таймлайна
-
-            const tFront = document.getElementById('truck-front'); // 1-я (улетела вперед)
-            const tRear = document.getElementById('truck-rear');   // 2-я (на базе D714)
-            const tThird = document.getElementById('truck-third'); // 3-я (на старте по C103)
-
-            if (tFront && tRear && tThird) {
-                // Точки привязки на схеме в процентах (left)
-                const posStart = 5;     // Самый левый край конвейера
-                const posStop1 = 28;    // Позиция Останова 1
-                const posBase714 = 55;  // Позиция Базы D714
-                const posEnd = 90;      // Конец конвейера
-
-                // ==========================================================
-                // ЛОГИКА 3-Й ТЕЛЕЖКИ (Зеленая: Старт и движение до Останова 1)
-                // ==========================================================
-                // На вашем кадре C103 = 26 (это больше 5), значит она уже доехала до останова и ждет
-                if (X7 === 1 || X7 === true || linksVal >= 5) {
-                    tThird.style.left = posStop1 + '%'; // Четко стоит на Останове 1
-                } else if (X6 === 1 || X6 === true) {
-                    tThird.style.left = (posStop1 - 4) + '%'; // Подкатывается к останову
-                } else if (linksVal > 0 && linksVal < 5) {
-                    // Плавное движение от старта до останова, пока счетчик звеньев растет от 1 до 5
-                    let progress = linksVal / 5;
-                    tThird.style.left = (posStart + progress * (posStop1 - posStart)) + '%';
-                } else {
-                    tThird.style.left = posStart + '%'; // Просто ожидает на старте
-                }
-
-                // ==========================================================
-                // ЛОГИКА 2-Й ТЕЛЕЖКИ (Оранжевая: Формирование базы по D714)
-                // ==========================================================
-                // На вашем кадре D714 = 15 (максимум), она стоит ровно посередине конвейера
-                if (d714Val > 0) {
-                    let maxD714 = 15; // Максимальное значение для расчета пропорции
-                    let progress = Math.min(d714Val / maxD714, 1);
-                    tRear.style.left = (posStop1 + progress * (posBase714 - posStop1)) + '%';
-                    tRear.style.opacity = '1';
-                } else {
-                    // Если база еще не начала формироваться для этой детали, 
-                    // она либо визуально скрыта, либо ожидает за штангой
-                    tRear.style.left = posStop1 + '%';
-                }
-
-                // ==========================================================
-                // ЛОГИКА 1-Й ТЕЛЕЖКИ (Синяя: Выпущенная вперед по D4000)
-                // ==========================================================
-                // Теперь она не исчезнет! Она управляется регистром D4000 (на кадре он равен 36)
-                if (d74000Val > 0) {
-                    let maxD4000 = 36; // Предел по D4000 с вашего экрана
-                    let progress = Math.min(d74000Val / maxD4000, 1);
-                    tFront.style.left = (posBase714 + progress * (posEnd - posBase714)) + '%';
-                    tFront.style.opacity = '1';
-                } else {
-                    // Если первая тележка уже сгрузилась (цикл завершен), удерживаем ее в конце 
-                    // или переводим в режим ожидания перед базой, пока D4000 равен 0
-                    tFront.style.left = posEnd + '%';
-                    // Если нужно, чтобы она исчезала, когда цикл ПЛК полностью сброшен:
-                    // tFront.style.opacity = '0'; 
-                }
-            }
-
+            // === НОВАЯ ФИЗИКА КОНВЕЙЕРА (вместо старых скачков) ===
+            updateConveyorVisual(data);
 
 
             // Обновляем время и прогресс
@@ -2571,15 +2740,29 @@
             if (!lastFrameTime) lastFrameTime = timestamp;
             const elapsed = timestamp - lastFrameTime;
 
+            // === ПРОПУСК ПРОСТОЯ: ищем следующий "интересный" кадр ===
+            let nextIdx = playerState.currentIndex + 1;
+            const skipIdle = document.getElementById('skipIdle')?.checked;
+
+            if (skipIdle && eventIndices.length > 0) {
+                const nextEvent = findNextEventIndex(playerState.currentIndex);
+                if (nextEvent > nextIdx) nextIdx = nextEvent;  // перепрыгиваем простой
+            }
+
+            if (nextIdx >= rawData.length) { playerStop(); return; }
+
             const currentTime = new Date(rawData[playerState.currentIndex].ts).getTime();
-            const nextTime = new Date(rawData[playerState.currentIndex + 1].ts).getTime();
+            const nextTime = new Date(rawData[nextIdx].ts).getTime();
             let delta = nextTime - currentTime;
             if (delta <= 0) delta = 100;
+
+            // Длинный простой сжимается до 1 секунды паузы (на скорости 1x)
+            if (nextIdx > playerState.currentIndex + 1 && delta > 3000) delta = 1000;
 
             const requiredDelay = delta / playerState.speed;
 
             if (elapsed >= requiredDelay) {
-                playerState.currentIndex++;
+                playerState.currentIndex = nextIdx;
                 updateIndicators();
                 if (playerState.speed <= 5 || playerState.currentIndex % 5 === 0) {
                     updateEventTimeline(false);
@@ -2690,7 +2873,124 @@
                 chart.update('none');
             });
         }
+        // ==================== ПОИСК ПО СОБЫТИЯМ ====================
+        let searchResults = [];
+        let searchCurrentIdx = -1;
 
+        function parseSearchQuery(query) {
+            const m = query.trim().toUpperCase().match(/^([XYMLC])\s*([0-9]+)$/);
+            if (!m) return null;
+            const type = m[1];
+            // ВАЖНО: X и Y на ПЛК нумеруются в ВОСЬМЕРИЧНОЙ системе (X10, X14, X22...)
+            // M, L, C — в десятичной. Это совпадает с отображением в ленте событий.
+            const idx = (type === 'X' || type === 'Y') ? parseInt(m[2], 8) : parseInt(m[2], 10);
+            if (isNaN(idx)) return null;
+            return { type, idx };
+        }
+
+        function searchEvents() {
+            const parsed = parseSearchQuery(document.getElementById('eventSearchInput').value);
+            const resultsBox = document.getElementById('searchResults');
+            const countEl = document.getElementById('searchCount');
+
+            if (!parsed) { countEl.textContent = '❌ Формат: L43, X6, M519, C110'; return; }
+            if (!rawData || rawData.length === 0) { countEl.textContent = '❌ Нет загруженных данных'; return; }
+
+            const mode = document.getElementById('searchMode').value;
+            const { type, idx } = parsed;
+            searchResults = [];
+            searchCurrentIdx = -1;
+
+            const getVal = (frame) => {
+                if (type === 'C') {
+                    const arrIdx = idx - 30;
+                    return (frame.C && arrIdx >= 0 && arrIdx < frame.C.length) ? frame.C[arrIdx] : 0;
+                }
+                return (frame[type] && frame[type][idx]) ? 1 : 0;
+            };
+
+            for (let i = 1; i < rawData.length; i++) {
+                const prevVal = getVal(rawData[i - 1]);
+                const curVal = getVal(rawData[i]);
+                if (prevVal === curVal) continue;
+
+                if (type === 'C') {
+                    searchResults.push({ index: i, kind: 'counter', from: prevVal, to: curVal });
+                } else {
+                    const rising = curVal === 1;
+                    if (mode === 'any' || (mode === 'rising' && rising) || (mode === 'falling' && !rising)) {
+                        searchResults.push({ index: i, kind: rising ? 'rising' : 'falling' });
+                    }
+                }
+            }
+
+            resultsBox.style.display = 'block';
+            countEl.textContent = `✅ ${type}${document.getElementById('eventSearchInput').value.replace(/^[XYMLC]/i, '').trim()}: найдено ${searchResults.length}`;
+            renderSearchResults();
+        }
+
+        function renderSearchResults() {
+            const resultsBox = document.getElementById('searchResults');
+            resultsBox.innerHTML = '';
+
+            if (searchResults.length === 0) {
+                resultsBox.innerHTML = '<div style="color:#888; padding:8px; font-size:12px;">Событий не найдено</div>';
+                return;
+            }
+
+            const maxShow = 500;
+            const frag = document.createDocumentFragment();
+
+            searchResults.slice(0, maxShow).forEach((res, i) => {
+                const d = new Date(rawData[res.index].ts);
+                const timeStr = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+                const div = document.createElement('div');
+                div.className = 'search-result-item ' + res.kind;
+                div.dataset.searchIdx = i;
+                let kindText = res.kind === 'counter' ? `C: ${res.from} → ${res.to}` : (res.kind === 'rising' ? '▲ 0→1' : '▼ 1→0');
+                div.innerHTML = `<span class="sr-time">${timeStr}</span><span class="sr-kind">${kindText}</span>`;
+                div.onclick = () => jumpToSearchResult(i);
+                frag.appendChild(div);
+            });
+            resultsBox.appendChild(frag);
+
+            if (searchResults.length > maxShow) {
+                const more = document.createElement('div');
+                more.style.cssText = 'color:#888; padding:6px; font-size:11px;';
+                more.textContent = `…показаны первые ${maxShow} из ${searchResults.length}. Уточните режим поиска.`;
+                resultsBox.appendChild(more);
+            }
+        }
+
+        function jumpToSearchResult(i) {
+            if (i < 0 || i >= searchResults.length) return;
+            searchCurrentIdx = i;
+            playerPause();
+            playerState.currentIndex = searchResults[i].index;
+            updateIndicators();
+
+            document.querySelectorAll('.search-result-item').forEach(el => el.classList.remove('current'));
+            const el = document.querySelector(`.search-result-item[data-search-idx="${i}"]`);
+            if (el) {
+                el.classList.add('current');
+                el.scrollIntoView({ block: 'nearest' });
+            }
+        }
+
+        function searchNext() {
+            if (!searchResults.length) return;
+            jumpToSearchResult((searchCurrentIdx + 1) % searchResults.length);
+        }
+
+        function searchPrev() {
+            if (!searchResults.length) return;
+            jumpToSearchResult((searchCurrentIdx - 1 + searchResults.length) % searchResults.length);
+        }
+
+        function quickSearch(sig) {
+            document.getElementById('eventSearchInput').value = sig;
+            searchEvents();
+        }
         // ==================== СТАРТ ====================
         document.addEventListener('DOMContentLoaded', () => {
             updateSignalDropdown();
@@ -2700,6 +3000,104 @@
             initIndicators();
             loadDataForDate(currentDateStr);
         });
+
+        // ==================== ФИЗИКА КОНВЕЙЕРА (версия 2) ====================
+        const CONV = {
+            pNext: 0,     // % — следующая на старте
+            pRear: 5,     // % — задняя ждёт
+            pStop: 25,    // % — останов (передняя на старте цикла)
+            pClose: 40,   // % — датчик закрытия (передняя при C103≈6)
+            pEnd: 96,     // % — сход со схемы
+            arrive: 6     // C103 = 5-6, приезд / закрытие
+        };
+
+        let convRoles = null;
+        let convPrevC = 0;
+        function lerp(a, b, t) { return a + (b - a) * Math.max(0, Math.min(1, t)); }
+
+        function setTruck(el, pos) {
+            if (!el) return;
+            el.style.left = Math.min(pos, CONV.pEnd + 4) + '%';
+            el.style.opacity = (pos > CONV.pEnd) ? '0' : '1';
+        }
+        function lerp(a, b, t) {
+            return a + (b - a) * Math.max(0, Math.min(1, t));
+        }
+
+        function applyTruck(el, pos, opacity) {
+            if (!el) return;
+            el.style.left = Math.min(pos, CONV.pEnd + 4) + '%';
+            el.style.opacity = opacity;
+        }
+
+
+        function updateConveyorVisual(data) {
+            const c = (data.C && data.C[73]) || 0;    // C103
+            const b = data.D714 || 0;                 // база
+            const d = Math.max(data.D4000 || 1, CONV.arrive + 2);
+            const K = (CONV.pEnd - CONV.pClose) / Math.max(d - CONV.arrive, 1); // %/звено
+
+            if (!convRoles) {
+                convRoles = {
+                    front: document.getElementById('_1'),  // Передняя
+                    rear: document.getElementById('_2'),  // Задняя
+                    next: document.getElementById('_3'),  // Передняя
+                    ahead: document.getElementById('_4')   // Задняя
+                };
+            }
+
+            // === СБРОС C103 → конвейер замкнут, роли едут по кругу ===
+            // === СБРОС C103 → конвейер замкнут, роли едут по кругу ===
+            if (c < convPrevC - 5) {
+                const r = convRoles;
+                const newRoles = {
+                    front: r.next,   // следующая ПЕРЕДНЯЯ встала к останову → передняя
+                    ahead: r.rear,   // отпущенная ЗАДНЯЯ ушла вперёд
+                    rear: r.ahead,  // впереди идущая ЗАДНЯЯ заходит слева как задняя
+                    next: r.front   // ПЕРЕДНЯЯ сошла справа → заходит слева как следующая
+                };
+                // Двух заходящих слева переставляем БЕЗ "полёта назад"
+                [newRoles.rear, newRoles.next].forEach(el => {
+                    if (el) { el.style.transition = 'none'; el.style.opacity = '0'; }
+                });
+                convRoles = newRoles;
+                requestAnimationFrame(() => {
+                    [newRoles.rear, newRoles.next].forEach(el => {
+                        if (el) { el.style.transition = ''; el.style.opacity = '1'; }
+                    });
+                });
+            }
+            convPrevC = c;
+
+            const t1 = (c - 1) / Math.max(CONV.arrive - 1, 1); // плавность фазы приезда
+
+            // === ПЕРЕДНЯЯ: 25→40 за c=1→6, дальше с цепью до схода ===
+            const posFront = (c <= CONV.arrive)
+                ? lerp(CONV.pStop, CONV.pClose, t1)
+                : CONV.pClose + (c - CONV.arrive) * K;
+
+            // === ЗАДНЯЯ: 5→25, СТОИТ до c=D714, отпущена — едет ===
+            let posRear;
+            if (c <= CONV.arrive) posRear = lerp(CONV.pRear, CONV.pStop, t1);
+            else if (c <= b) posRear = CONV.pStop;      // держит штанга
+            else posRear = CONV.pStop + (c - b) * K;
+
+            // === СЛЕДУЮЩАЯ: 0→5, ждёт, после задней едет к останову и стоит ===
+            let posNext;
+            if (c <= CONV.arrive) posNext = lerp(CONV.pNext, CONV.pRear, t1);
+            else if (c <= b) posNext = CONV.pRear;
+            else if (c <= b + CONV.arrive) posNext = lerp(CONV.pRear, CONV.pStop, (c - b) / Math.max(CONV.arrive - 1, 1));
+            else posNext = CONV.pStop;
+
+            // === ВПЕРЕДИ: едет с цепью впереди, сходит справа ===
+            const posAhead = CONV.pStop + (d - b + c - 1) * K;
+
+            setTruck(convRoles.front, posFront);
+            setTruck(convRoles.rear, posRear);
+            setTruck(convRoles.next, posNext);
+            setTruck(convRoles.ahead, posAhead);
+        }
+
     </script>
 </body>
 
