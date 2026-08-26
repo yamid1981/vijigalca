@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <link rel="shortcut icon" href="images/favicon.ico">
+    <title>АСКУТ ПАР, АРТ-ХИМ ВОДА</title>
+
+    <script src="javascript/Frameworks/jquery.min.js" type="text/javascript"></script>
+    <script src="javascript/par_art_him/table_art_him.js"></script>
+    <script src="javascript/tegi_all.js"></script>
+    <script src="javascript/last_update.js"></script>
+
+    <meta http-equiv="refresh" content="600">
+
+    <style>
+        .styl {
+            -ms-user-select: none;
+            user-select: none;
+            font-family: Sylfaen, sans-serif;
+        }
+
+        .container {
+            top: 5em;
+            margin: 0 auto;
+            position: relative;
+            /* Изменено на relative для корректного позиционирования детей */
+            border: 3px solid white;
+            background-color: #a2a2a2;
+            width: 85em;
+            height: 85em;
+            border-radius: 22px 1px 22px 1px;
+        }
+
+        .ramka1 {
+            width: 10.2em;
+            height: 24em;
+            border: 1px solid white;
+            font-size: 20pt;
+            color: black;
+            left: 0.5em;
+            position: absolute;
+            top: 2em;
+            border-radius: 22px 1px 22px 1px;
+            background-color: #a2a2a2;
+            /* Чтобы перекрывать всё за собой */
+            z-index: 10;
+        }
+
+        #n_1,
+        #n_3,
+        #n_4,
+        #n_6,
+        #n_7,
+        #n_8,
+        #n_9,
+        #n_10,
+        #n_11 {
+            position: absolute;
+            top: 3.3em;
+            font-family: Sylfaen;
+            font-size: 11pt;
+            color: black;
+            font-weight: 900;
+            background: #a2a2a2;
+            /* padding: 3px 5px; */
+            z-index: 6;
+        }
+
+        #n_1 {
+            left: 24em;
+            padding-top: 3px;
+        }
+
+        #n_3 {
+            left: 32.5em;
+            padding-top: 3px;
+        }
+
+        #n_4 {
+            left: 38.5em;
+        }
+
+        #n_6 {
+            left: 46.5em;
+            padding-top: 3px;
+        }
+
+        #n_7 {
+            left: 53.5em;
+        }
+
+        #n_8 {
+            left: 60em;
+            padding-top: 3px;
+        }
+
+        #n_9 {
+            left: 68em;
+            padding-top: 3px;
+        }
+
+        #n_10 {
+            left: 74em;
+            padding-top: 3px;
+        }
+
+        #n_11 {
+            left: 80.5em;
+        }
+
+        /* === ВОССТАНОВЛЕННОЕ ОРИГИНАЛЬНОЕ ПОЗИЦИОНИРОВАНИЕ ЛЕВОЙ ПАНЕЛИ === */
+        #label1,
+        #label2,
+        #label3,
+        #label4,
+        #label5,
+        #label6,
+        #label7,
+        #label8,
+        #label9,
+        #label10,
+        #label11,
+        #label12,
+        #label13,
+        #label14,
+        #label15,
+        #a_p,
+        #a_q,
+        #a_v,
+        #x_t,
+        #x_p,
+        #x_q,
+        #x_v,
+        #p_t,
+        #p_p,
+        #p_g,
+        #p_Ws,
+        #p_v {
+            position: absolute;
+        }
+
+        #label1 {
+            left: 2em;
+            top: 0em;
+        }
+
+        #label2 {
+            left: 6em;
+            top: 1.5em;
+        }
+
+        #a_p {
+            left: 0.5em;
+            top: 1.5em;
+        }
+
+        #label3 {
+            left: 6em;
+            top: 3em;
+        }
+
+        #a_q {
+            left: 0.5em;
+            top: 3em;
+        }
+
+        #label4 {
+            left: 6em;
+            top: 4.5em;
+        }
+
+        #a_v {
+            left: 0.5em;
+            top: 4.5em;
+        }
+
+        #label5 {
+            left: 1em;
+            top: 6em;
+        }
+
+        #label6 {
+            left: 6em;
+            top: 7.5em;
+        }
+
+        #x_t {
+            left: 0.5em;
+            top: 7.5em;
+        }
+
+        #label7 {
+            left: 6em;
+            top: 9em;
+        }
+
+        #x_p {
+            left: 0.5em;
+            top: 9em;
+        }
+
+        #label8 {
+            left: 6em;
+            top: 10.5em;
+        }
+
+        #x_q {
+            left: 0.5em;
+            top: 10.5em;
+        }
+
+        #label9 {
+            left: 6em;
+            top: 12em;
+        }
+
+        #x_v {
+            left: 0.5em;
+            top: 12em;
+        }
+
+        #label10 {
+            left: 3em;
+            top: 13.5em;
+        }
+
+        #label11 {
+            left: 6em;
+            top: 15em;
+        }
+
+        #p_t {
+            left: 0.5em;
+            top: 15em;
+        }
+
+        #label12 {
+            left: 6em;
+            top: 16.5em;
+        }
+
+        #p_p {
+            left: 0.5em;
+            top: 16.5em;
+        }
+
+        #label13 {
+            left: 6em;
+            top: 18em;
+        }
+
+        #p_g {
+            left: 0.5em;
+            top: 18em;
+        }
+
+        #label14 {
+            left: 6em;
+            top: 19.5em;
+        }
+
+        #p_Ws {
+            left: 0.5em;
+            top: 19.5em;
+        }
+
+        #label15 {
+            left: 6em;
+            top: 21em;
+        }
+
+        #p_v {
+            left: 0.5em;
+            top: 21em;
+        }
+
+        /* Значения в ячейках */
+        #a_p,
+        #a_q,
+        #a_v,
+        #x_t,
+        #x_p,
+        #x_q,
+        #x_v,
+        #p_t,
+        #p_p,
+        #p_g,
+        #p_Ws,
+        #p_v {
+            background: white;
+            width: 5em;
+            text-align: center;
+            border-radius: 10px 1px 10px 1px;
+            z-index: 11;
+            /* Поверх рамок */
+        }
+
+        #label16,
+        #label17,
+        #label18 {
+            position: absolute;
+            font-size: 30pt;
+            z-index: 5;
+        }
+
+        #label16 {
+            left: 9em;
+            top: 0em;
+            color: blue;
+        }
+
+        #label17 {
+            left: 16.4em;
+            top: 0em;
+            color: red;
+        }
+
+        #label18 {
+            left: 26em;
+            top: 0em;
+            color: rgb(70, 63, 1);
+        }
+
+        /* Таблица */
+        #tableWrapper {
+            position: absolute;
+            left: 20em;
+            top: 5em;
+            width: 59em;
+            height: 38em;
+            overflow-y: scroll;
+            overflow-x: hidden;
+            border: 1px solid white;
+            background-color: #a2a2a2;
+            z-index: 5;
+            -ms-overflow-style: scrollbar;
+            /* Для IE11 */
+        }
+
+        #table {
+            width: 100%;
+            /* Растянуть на всю ширину обёртки */
+            /* border-collapse: collapse; */
+            font-size: 18pt;
+            background-color: #a2a2a2;
+            /* Убираем overflow, left, top, height, position – они теперь не нужны */
+        }
+
+        tr {
+            height: 1em;
+        }
+
+        td {
+            width: 4em;
+            text-align: center;
+            background: white;
+            border-radius: 10px 1px 10px 1px;
+        }
+
+        td:nth-child(3) {
+            border-right: 10px solid gray;
+        }
+
+        td:nth-child(6) {
+            border-right: 10px solid gray;
+        }
+
+        tr:nth-child(odd),
+        tr:nth-child(even) {
+            background: white;
+        }
+
+        #vrem {
+            position: absolute;
+            top: 0em;
+            left: 1.5em;
+            color: black;
+            z-index: 20;
+            font-size: 48px;
+            font-weight: bold;
+        }
+
+        /* Радиокнопки выбора периода */
+        #rad {
+            position: absolute;
+            top: 37.5em;
+            left: 17em;
+            font-size: 14pt;
+            color: #000;
+            z-index: 15;
+        }
+
+        /* Обёртка для каждой радиокнопки с подсказкой */
+        .tooltip {
+            position: relative;
+            display: inline-block;
+            margin-right: 15px;
+            opacity: 0.9;
+            cursor: pointer;
+        }
+
+        /* Текст подсказки (появляется при наведении) */
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 220px;
+            background-color: black;
+            color: #fff;
+            text-align: center;
+            border-radius: 20px 1px 20px 1px;
+            padding: 5px;
+            position: absolute;
+            z-index: 100;
+            bottom: 125%;
+            /* Показываем над радио */
+            left: 50%;
+            margin-left: -110px;
+            /* Центрирование */
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 12pt;
+        }
+
+        /* Показываем подсказку при наведении */
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
+    </style>
+</head>
+
+<body class="styl">
+    <div class="container">
+        <div id="vrem">--:--:--</div>
+
+        <!-- Левая панель 1 -->
+        <div class="ramka1" id="content">
+            <div id="a_p">-</div>
+            <div id="a_q">-</div>
+            <div id="a_v">-</div>
+            <div id="x_t">-</div>
+            <div id="x_p">-</div>
+            <div id="x_q">-</div>
+            <div id="x_v">-</div>
+            <div id="p_t">-</div>
+            <div id="p_p">-</div>
+            <div id="p_g">-</div>
+            <div id="p_Ws">-</div>
+            <div id="p_v">-</div>
+            <div id="label1">Артезианская</div>
+            <div id="label2">P(MPa)</div>
+            <div id="label3">Q(м<sup>3</sup>/ч)</div>
+            <div id="label4">V(м<sup>3</sup>)</div>
+            <div id="label5">Химочищенная</div>
+            <div id="label6">Т(&#176;C)</div>
+            <div id="label7">P(MPa)</div>
+            <div id="label8">Q(м<sup>3</sup>/ч)</div>
+            <div id="label9">V(м<sup>3</sup>)</div>
+            <div id="label10">ПАР</div>
+            <div id="label11">Т(&#176;C)</div>
+            <div id="label12">P(MPa)</div>
+            <div id="label13">Q(м<sup>3</sup>/ч)</div>
+            <div id="label14">W(ГДж)</div>
+            <div id="label15">V(м<sup>3</sup>/ч)</div>
+        </div>
+
+        <div id="label16">Артезианская</div>
+        <div id="label17">Химочищенная</div>
+        <div id="label18">ПАР</div>
+        <div id="n_1">Время</div>
+        <div id="n_3">P(MPa)</div>
+        <div id="n_4">Q(м<sup>3</sup>/ч)</div>
+        <div id="n_6">P(MPa)</div>
+        <div id="n_7">Q(м<sup>3</sup>/ч)</div>
+        <div id="n_8">Т(&#176;C)</div>
+        <div id="n_9">Т(&#176;C)</div>
+        <div id="n_10">P(MPa)</div>
+        <div id="n_11">Q(м<sup>3</sup>/ч)</div>
+
+        <div id="tableWrapper">
+            <table id="table">
+                <thead>
+                    <tr></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <div id="rad">
+            <div class="tooltip">
+                <input type="radio" id="_rad1" name="_rad" onclick="_10min()" value="10_min" checked>
+                <span class="tooltiptext">Показания снятые каждые 10 мин без обработки (моментальные значения)!</span>
+                10 мин.
+            </div>
+
+            <div class="tooltip">
+                <input type="radio" id="_rad2" name="_rad" onclick="chas()" value="chas">
+                <span class="tooltiptext">Показания усреднённого значения за час</span>
+                час
+            </div>
+
+            <div class="tooltip">
+                <input type="radio" id="_rad3" name="_rad" onclick="den()" value="den">
+                <span class="tooltiptext">Показания усреднённого значения за сутки (Тестирование!!!)</span>
+                сутки
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        var PAR_AKTUAL_LENGTH = 5;
+        var par_aktual = [1, 2, 3, 4, 5];
+
+        function loadScript(url) {
+            var script = document.createElement("script");
+            script.type = "text/javascript";
+            script.src = url;
+
+            var loadingMessage = document.createElement("div");
+            loadingMessage.id = "loading_Message";
+            loadingMessage.innerText = "Данные загружаются...";
+            loadingMessage.style.cssText = "position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 15px; background-color: rgba(0, 0, 0, 0.8); color: white; border-radius: 10px; z-index: 9999; font-size: 18px;";
+            document.body.appendChild(loadingMessage);
+
+            script.onload = function () {
+                loadingMessage.innerText = "Данные загружены!";
+                setTimeout(function () {
+                    if (document.body.contains(loadingMessage)) {
+                        document.body.removeChild(loadingMessage);
+                    }
+                }, 1500);
+            };
+            script.onerror = function () {
+                this.parentNode.removeChild(this);
+                if (document.body.contains(loadingMessage)) document.body.removeChild(loadingMessage);
+            };
+            document.head.appendChild(script);
+        }
+
+        function _10min() { loadScript("javascript/par_art_him/table_art_him.js"); if (typeof upd_color === "function") upd_color(); }
+        function chas() { loadScript("javascript/par_art_him/chas_table_art_him.js"); if (typeof upd_color === "function") upd_color(); }
+        function den() { loadScript("javascript/par_art_him/den_table_art_him.js"); if (typeof upd_color === "function") upd_color(); }
+
+        var audio = new Audio();
+        audio.preload = 'auto';
+        audio.src = '/sound/sirena.mp3';
+
+        // Генерация таблицы
+        var tableBody = document.querySelector('#table tbody');
+        for (var i = 1; i < 1001; i++) {
+            var tr = document.createElement('tr');
+            for (var k = 1; k < 12; k++) {
+                if (k == 2 || k == 5) continue;
+                var td = document.createElement('td');
+                td.textContent = '?';
+                td.id = 'AXP_' + i.toString() + 'stroka_' + k.toString() + 'stolbec';
+                if (k == 1) td.style.color = "black";
+                else if (k > 1 && k < 5) td.style.color = "blue";
+                else if (k >= 5 && k < 8) td.style.color = "red";
+                else if (k >= 8) td.style.color = "rgb(70, 63, 1)";
+                tr.appendChild(td);
+            }
+            tableBody.appendChild(tr);
+        }
+
+        function upd1() {
+            var cacheBuster = "?v=" + new Date().getTime();
+            var scripts = ['javascript/tegi_all.js', 'javascript/last_update.js'];
+            for (var j = 0; j < scripts.length; j++) {
+                var script = document.createElement('script');
+                script.src = scripts[j] + cacheBuster;
+                script.async = false;
+                script.onload = function () { this.parentNode.removeChild(this); };
+                script.onerror = function () { this.parentNode.removeChild(this); };
+                document.head.appendChild(script);
+            }
+            if (typeof upd_color === "function") upd_color();
+        }
+
+        function v_niz() {
+            var element = document.getElementById("AXP_1000stroka_8stolbec");
+            var tableContainer = document.getElementById("tableWrapper"); // было #table
+            if (element && tableContainer) {
+                var elementPosition = element.offsetTop;
+                var containerScrollTop = tableContainer.scrollTop;
+                var containerHeight = tableContainer.clientHeight;
+                if (elementPosition < containerScrollTop || elementPosition > containerScrollTop + containerHeight) {
+                    tableContainer.scrollTop = elementPosition - containerHeight / 2;
+                }
+            }
+        }
+
+        function upd_color() {
+            for (var i = 0; i < 1001; i++) {
+                var el3 = $('#AXP_' + i + 'stroka_3stolbec');
+                var val3 = parseFloat(el3.html()) || 0;
+                if (val3 <= 0.04) el3.css({ "background": "red", "color": "black" });
+                else el3.css({ "background": "white", "color": "blue" });
+                if (val3 <= -10 || val3 >= 10) el3.html("Er");
+
+                var el7 = $('#AXP_' + i + 'stroka_7stolbec');
+                var val7 = parseFloat(el7.html()) || 0;
+                el7.css("background", val7 >= 100 ? "yellow" : "white");
+                if (val7 <= -10000 || val7 >= 10000) el7.html("Er");
+
+                var el8 = $('#AXP_' + i + 'stroka_8stolbec');
+                var val8 = parseFloat(el8.html()) || 0;
+                if (val8 >= 65) el8.css({ "background": "red", "color": "black" });
+                else if (val8 >= 60) el8.css("background", "yellow");
+                else el8.css({ "background": "white", "color": "red" });
+                if (val8 <= -10000 || val8 >= 10000) el8.html("Er");
+
+                var el4 = $('#AXP_' + i + 'stroka_4stolbec');
+                var val4 = parseFloat(el4.html()) || 0;
+                if (val4 <= -10000 || val4 >= 10000) el4.html("Er");
+
+                var el6 = $('#AXP_' + i + 'stroka_6stolbec');
+                var val6 = parseFloat(el6.html()) || 0;
+                if (val6 <= -10000 || val6 >= 10000) el6.html("Er");
+
+                var el9 = $('#AXP_' + i + 'stroka_9stolbec');
+                var val9 = parseFloat(el9.html()) || 0;
+                if (val9 <= -10000 || val9 >= 10000) el9.html("Er");
+
+                var el11 = $('#AXP_' + i + 'stroka_11stolbec');
+                var val11 = parseFloat(el11.html()) || 0;
+                if (val11 <= -10000 || val11 >= 10000) el11.html("Er");
+            }
+        }
+
+        function par_color() {
+            var _xq = parseFloat($('#x_q').html()) || 0;
+            $('#x_q').css("background", _xq >= 100 ? "yellow" : "white");
+
+            var _ap = parseFloat($('#a_p').html()) || 0;
+            if (_ap < 0.05) {
+                $('#a_p').css("background", "red");
+                try { audio.play(); } catch (e) { }
+            } else {
+                $('#a_p').css("background", "white");
+            }
+
+            var temp = parseFloat($('#x_t').html()) || 0;
+            if (temp >= 65) {
+                $('#x_t').css("background", "red");
+                try { audio.play(); } catch (e) { }
+            } else if (temp >= 60) {
+                $('#x_t').css("background", "yellow");
+            } else {
+                $('#x_t').css("background", "white");
+            }
+        }
+
+        setTimeout(v_niz, 1000);
+        setInterval(v_niz, 60000);
+        setInterval(par_color, 500);
+
+
+        function updateClock() {
+            $.ajax({
+                url: 'vremja.json',
+                cache: false,
+                dataType: 'json',
+                success: function (data) {
+                    document.getElementById('vrem').innerHTML = data.time;
+                },
+                error: function (err) {
+                    // Если файла нет, показываем локальное время
+                    var now = new Date();
+                    document.getElementById('vrem').innerHTML = now.toLocaleTimeString('ru-RU');
+                }
+            });
+        }
+
+        setInterval(updateClock, 5000);
+        updateClock();
+
+        var UPDATE_INTERVAL = 5000;
+        setInterval(upd1, UPDATE_INTERVAL);
+        upd1();
+    </script>
+</body>
+
+</html>
