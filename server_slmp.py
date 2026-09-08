@@ -840,6 +840,11 @@ def plc_admin_interface():
     """PLC Diagnostic интерфейс plc_admin.html"""
     return render_template('plc_admin.html')
 
+@app.route('/plc_admin_red')
+def plc_admin_interface2():
+    """PLC Diagnostic интерфейс get_plc.html"""
+    return render_template('get_plc.html')
+
 @app.route('/timeline')
 def timeline_interface():
     """Timeline визуализация датчиков за день"""
